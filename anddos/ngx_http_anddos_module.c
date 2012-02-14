@@ -3,6 +3,8 @@
  *
  * Marek Aufart, aufi.cz@gmail.com, twitter @auficz
  * 
+ * license: GNU GPL v3
+ * 
  * resources: http://wiki.nginx.org/3rdPartyModules, http://www.evanmiller.org/nginx-modules-guide.html, http://blog.zhuzhaoyuan.com/2009/08/creating-a-hello-world-nginx-module/
  * 
  */
@@ -11,7 +13,7 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
-static u_char ngx_anddos_fail_string[] = "<html><head><meta http-equiv='refresh' content='5'><title>Blocked by anddos</title></head><body><p>You have been blocked!</p></body></html>";
+static u_char ngx_anddos_fail_string[] = "<html><head><meta http-equiv='refresh' content='5'><title>Blocked by anddos</title></head><body><p>You have been blocked by anddos!</p></body></html>";
 
 //function declarations
 static ngx_int_t ngx_http_anddos_request_handler(ngx_http_request_t *r);
@@ -21,6 +23,10 @@ static ngx_int_t ngx_http_anddos_learn_filter(ngx_http_request_t *r);
 static ngx_int_t ngx_http_anddos_filter_init(ngx_conf_t *cf);
 
 static ngx_http_output_header_filter_pt  ngx_http_next_header_filter;
+
+//data store
+//struct ngx_http_anddos_client;
+//struct ngx_http_anddos_state;
 
 //datatypes
 static ngx_command_t ngx_http_anddos_commands[] = {
@@ -60,9 +66,32 @@ ngx_module_t  ngx_http_anddos_module = {
     NGX_MODULE_V1_PADDING
 };
 
+typedef struct {
+    int score;
+    ngx_str_t ip;
+    ngx_str_t browser;
+    ngx_uint_t request_count;
+    ngx_uint_t notmod_count;
+    float avg_time;
+    ngx_uint_t avg_time_count;
+} ngx_http_anddos_client_t;
+
+typedef struct {
+    ngx_uint_t request_count;
+    ngx_uint_t notmod_count;
+    float avg_time;
+} ngx_http_anddos_state_t;
+
+
+//data init
+//static ngx_hash_t clients;
+
+
 //function definitions
 static ngx_int_t 
 ngx_http_anddos_request_handler(ngx_http_request_t *r) {
+    
+    //ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "anddos processing request");
     
     ngx_int_t    rc;
     ngx_buf_t   *b;
@@ -78,6 +107,8 @@ ngx_http_anddos_request_handler(ngx_http_request_t *r) {
         return rc;
     }
  
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "blocked by anddos");
+    
     /* set the 'Content-type' header */
     r->headers_out.content_type_len = sizeof("text/html") - 1;
     r->headers_out.content_type.len = sizeof("text/html") - 1;
@@ -107,7 +138,7 @@ ngx_http_anddos_request_handler(ngx_http_request_t *r) {
     b->last_buf = 1;  /* this is the last buffer in the buffer chain */
  
     /* set the status line */
-    r->headers_out.status = NGX_HTTP_PRECONDITION_FAILED;
+    r->headers_out.status = NGX_HTTP_PRECONDITION_FAILED;       //for dev, FIX to NGX_HTTP_SERVICE_UNAVAILABLE in production 
     r->headers_out.content_length_n = sizeof(ngx_anddos_fail_string) - 1;
  
     /* send the headers of your response */
@@ -126,8 +157,11 @@ ngx_http_anddos_request_handler(ngx_http_request_t *r) {
 static ngx_int_t
 ngx_http_anddos_learn_filter(ngx_http_request_t *r)
 {
+    //struct ngx_http_anddos_client_t client;
+    //client.browser = "sdfsdf";
     
-
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "anddos learn", r->headers_in.user_agent);
+    
     return ngx_http_next_header_filter(r);
 }
 

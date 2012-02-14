@@ -11,7 +11,7 @@ Install/compile anddos to nginx
 
     $ cd src/nginx
 
-    $ make clean && ./configure --add-module=<path_to_anddos> && make -j2
+    $ make clean && ./configure --add-module=../anddos/anddos && make -j2
 
     # make install
 
