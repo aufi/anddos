@@ -22,7 +22,7 @@ static char * ngx_http_anddos(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static ngx_int_t ngx_http_anddos_learn_filter(ngx_http_request_t *r);
 static ngx_int_t ngx_http_anddos_filter_init(ngx_conf_t *cf);
 
-static ngx_http_output_header_filter_pt  ngx_http_next_header_filter;
+static ngx_http_output_header_filter_pt  ngx_http_next_header_filter;           //???????
 
 //data store
 //struct ngx_http_anddos_client;
@@ -107,8 +107,9 @@ ngx_http_anddos_request_handler(ngx_http_request_t *r) {
         return rc;
     }
  
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "blocked by anddos");
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS: request blocked");
     
+    //FIX necesarry ?
     /* set the 'Content-type' header */
     r->headers_out.content_type_len = sizeof("text/html") - 1;
     r->headers_out.content_type.len = sizeof("text/html") - 1;
@@ -148,19 +149,25 @@ ngx_http_anddos_request_handler(ngx_http_request_t *r) {
         return rc;
     }
  
+    ngx_http_complex_value_t  cv;
+    ngx_memzero(&cv, sizeof(ngx_http_complex_value_t));
+    cv.value.len = sizeof(ngx_anddos_fail_string) - 1;
+    cv.value.data = ngx_anddos_fail_string;
+    
     /* send the buffer chain of your response */
     return ngx_http_output_filter(r, &out);
-    //return ngx_http_send_response(r, NGX_HTTP_OK, &ngx_http_gif_type, &cv);
+    //return ngx_http_send_response(r, r->headers_out.status, (ngx_str_t *) r->headers_out.content_type.data, &cv);
     
 }
 
 static ngx_int_t
 ngx_http_anddos_learn_filter(ngx_http_request_t *r)
-{
+{   
     //struct ngx_http_anddos_client_t client;
     //client.browser = "sdfsdf";
     
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "anddos learn", r->headers_in.user_agent);
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS: learn");
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, (char *) r->headers_in.user_agent->value.data);
     
     return ngx_http_next_header_filter(r);
 }
@@ -180,8 +187,9 @@ ngx_http_anddos(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 static ngx_int_t
 ngx_http_anddos_filter_init(ngx_conf_t *cf)
 {
+    //FIX handles all requests (incl.blocked)!
     ngx_http_next_header_filter = ngx_http_top_header_filter;
     ngx_http_top_header_filter = ngx_http_anddos_learn_filter;
-
+    
     return NGX_OK;
 }

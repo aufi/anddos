@@ -7,13 +7,13 @@ Anti-DDOS module for nginx webserver. The aim is to restrict impact DDOS attacks
 Installation
 ------------
 
-Install/compile anddos to nginx
+Install/compile anddos to nginx (development enviroment)
 
     $ cd src/nginx
 
     $ make clean && ./configure --add-module=../anddos/anddos && make -j2
 
-    # make install
+    # /usr/local/nginx/sbin/nginx -s stop && make install && rm /usr/local/nginx/logs/* && /usr/local/nginx/sbin/nginx
 
 
 Setup config files - nginx.conf
