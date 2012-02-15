@@ -22,11 +22,15 @@ static char * ngx_http_anddos(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static ngx_int_t ngx_http_anddos_learn_filter(ngx_http_request_t *r);
 static ngx_int_t ngx_http_anddos_filter_init(ngx_conf_t *cf);
 
-static ngx_http_output_header_filter_pt  ngx_http_next_header_filter;           //???????
+static ngx_http_output_header_filter_pt  ngx_http_next_header_filter;
 
 //data store
 //struct ngx_http_anddos_client;
 //struct ngx_http_anddos_state;
+
+//anddos internal functions
+//static char * ngx_http_anddos_get_state();
+//static char * ngx_http_anddos_get_client();
 
 //datatypes
 static ngx_command_t ngx_http_anddos_commands[] = {
@@ -77,14 +81,15 @@ typedef struct {
 } ngx_http_anddos_client_t;
 
 typedef struct {
-    ngx_uint_t request_count;
-    ngx_uint_t notmod_count;
+    int request_count;
+    int notmod_count;
     float avg_time;
 } ngx_http_anddos_state_t;
 
 
 //data init
 //static ngx_hash_t clients;
+ngx_http_anddos_state_t ngx_http_anddos_state;
 
 
 //function definitions
@@ -98,8 +103,7 @@ ngx_http_anddos_request_handler(ngx_http_request_t *r) {
     ngx_chain_t  out;
  
     //decide whether is request bot or not
-    int score = rand() % 10;
-    if (score > 4) return NGX_DECLINED;
+    if (ngx_http_anddos_state.request_count % 3) return NGX_DECLINED;
     
     rc = ngx_http_discard_request_body(r);
  
@@ -144,11 +148,12 @@ ngx_http_anddos_request_handler(ngx_http_request_t *r) {
  
     /* send the headers of your response */
     rc = ngx_http_send_header(r);
- 
+
     if (rc == NGX_ERROR || rc > NGX_OK || r->header_only) {
         return rc;
     }
  
+    //FIX improve fail responses
     ngx_http_complex_value_t  cv;
     ngx_memzero(&cv, sizeof(ngx_http_complex_value_t));
     cv.value.len = sizeof(ngx_anddos_fail_string) - 1;
@@ -165,10 +170,15 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r)
 {   
     //struct ngx_http_anddos_client_t client;
     //client.browser = "sdfsdf";
+    //r->headers_out.
+
+    //server stats update
+    ngx_http_anddos_state.request_count += 1;
+    if (r->headers_out.status == 302) ngx_http_anddos_state.notmod_count += 1;
     
     ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS: learn");
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, (char *) r->headers_in.user_agent->value.data);
-    
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "request_count: %i; notmod_count: %i", ngx_http_anddos_state.request_count, ngx_http_anddos_state.notmod_count);
+
     return ngx_http_next_header_filter(r);
 }
 
@@ -190,6 +200,9 @@ ngx_http_anddos_filter_init(ngx_conf_t *cf)
     //FIX handles all requests (incl.blocked)!
     ngx_http_next_header_filter = ngx_http_top_header_filter;
     ngx_http_top_header_filter = ngx_http_anddos_learn_filter;
+    
+    ngx_http_anddos_state.notmod_count = 0;
+    ngx_http_anddos_state.request_count = 0;
     
     return NGX_OK;
 }
