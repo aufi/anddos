@@ -13,10 +13,10 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
-#define COOKIENAME "anddosckey"
+#define COOKIENAME "anddos_key"
 #define COOKIEKEYLEN 5
 
-static u_char ngx_anddos_fail_string[] = "<html><head><meta http-equiv='refresh' content='5'><title>Blocked by anddos</title></head><body><p>You have been blocked by anddos!</p></body></html>";
+static u_char ngx_anddos_fail_string[] = "<html><head><meta http-equiv='refresh' content='10'><title>Blocked by anddos</title></head><body><p>You have been blocked by anddos!</p></body></html>";
 
 //function declarations
 static ngx_int_t ngx_http_anddos_request_handler(ngx_http_request_t *r);
@@ -28,7 +28,7 @@ static ngx_int_t ngx_http_anddos_filter_init(ngx_conf_t *cf);
 static ngx_http_output_header_filter_pt ngx_http_next_header_filter;
 
 ngx_int_t set_custom_header_in_headers_out(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t *value);
-static char * ngx_http_anddos_rnd_text();
+static u_char * ngx_http_anddos_rnd_text();
 
 //data store
 //struct ngx_http_anddos_client;
@@ -100,16 +100,16 @@ ngx_http_anddos_state_t ngx_http_anddos_state;
 
 //function definitions
 
-char *
+u_char *
 ngx_http_anddos_rnd_text() {
-    srand(time(NULL));
-    static char t[COOKIEKEYLEN+1];
-    char * dict = "qwertzuXioadNfgh4jklyxcvbnCm12367890YVBMLKJpHGFDSAQW5EsRTZUIOP";
+    //srand(time(NULL));
+    static u_char t[COOKIEKEYLEN+1];
+    u_char * dict = (u_char *) "qwertzuXioadNfgh4jklyxcvbnCm12367890YVBMLKJpHGFDSAQW5EsRTZUIOP";
     int i;
     for (i = 0; i<COOKIEKEYLEN; i++) {
-        t[i] = dict[rand()%strlen(dict)];
+        t[i] = dict[rand()%strlen((char*)dict)];
     }
-    t[COOKIEKEYLEN] = '\n';
+    //t[COOKIEKEYLEN] = '\0';
     return t;
 }
 
@@ -215,18 +215,14 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
     if ((int) r->headers_out.status == 304) ngx_http_anddos_state.notmod_count += 1;
 
     //generate cookie key
-    char * client_key = ngx_http_anddos_rnd_text();
-    
+    u_char * client_key = ngx_http_anddos_rnd_text();
+    //FIX overflow?
     //char cookie_value_str[COOKIEKEYLEN+12+2];
-    char cookie_value_str[30];  //FIX inserts more chars then it should
+    u_char cookie_value_str[18];
     
-    sprintf(cookie_value_str, "%s=%s", COOKIENAME, client_key);
+    ngx_sprintf(cookie_value_str, "%s=%s", COOKIENAME, client_key);
     ngx_str_t cookie_name = ngx_string("Set-Cookie");
     ngx_str_t cookie_value = ngx_string(cookie_value_str);
-    
-    //cookie_value.data = (u_char *) cookie_value_str;  //FIX dirty
-    //cookie_value.len = strlen((char *)cookie_value.data); 
-    //ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS cookie alg: %s var: %s", (char *)cookie_value.data, cookie_value_str);   
     
     //set a cookie
     ngx_int_t hr = set_custom_header_in_headers_out(r, &cookie_name, &cookie_value);
@@ -234,7 +230,7 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS state: request_count: %i; notmod_count: %i, key: ", ngx_http_anddos_state.request_count, ngx_http_anddos_state.notmod_count, client_key);
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS state: request_count: %i; notmod_count: %i, key: %s, Set-cookie: %s", ngx_http_anddos_state.request_count, ngx_http_anddos_state.notmod_count, client_key, cookie_value_str);
     
     return ngx_http_next_header_filter(r);
 }
