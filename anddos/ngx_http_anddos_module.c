@@ -94,7 +94,7 @@ typedef struct {
 
 
 //data init
-//static ngx_hash_t clients;
+ngx_hash_t * ngx_http_anddos_clients;
 ngx_http_anddos_state_t ngx_http_anddos_state;
 
 
@@ -102,7 +102,7 @@ ngx_http_anddos_state_t ngx_http_anddos_state;
 
 u_char *
 ngx_http_anddos_rnd_text() {
-    //srand(time(NULL));
+    //srand(time(NULL));        //FIX commented in dev enviroment
     static u_char t[COOKIEKEYLEN+1];
     u_char * dict = (u_char *) "qwertzuXioadNfgh4jklyxcvbnCm12367890YVBMLKJpHGFDSAQW5EsRTZUIOP";
     int i;
@@ -252,8 +252,59 @@ ngx_http_anddos_filter_init(ngx_conf_t *cf) {
     ngx_http_next_header_filter = ngx_http_top_header_filter;
     ngx_http_top_header_filter = ngx_http_anddos_learn_filter;
 
+    //basic server stats
     ngx_http_anddos_state.notmod_count = 0;
     ngx_http_anddos_state.request_count = 0;
+    /*
+    //clients hashtable
+    //http://xiqiao1229.iteye.com/blog/805332
+    ngx_pool_t * pool;
+    pool = ngx_create_pool(1024*100, NULL);
+    ngx_http_anddos_clients = (ngx_hash_t*) ngx_pcalloc(pool, sizeof(ngx_http_anddos_clients));
+    ngx_hash_init_t hash_init;
+    hash_init.hash = ngx_http_anddos_clients;
+    hash_init.key = &ngx_hash_key_lc;
+    hash_init.max_size  = 1024*100;     //100K elts
+    hash_init.bucket_size = 64; //(2) Number of entries in one bucket or bucket size in bytes ?
+    hash_init.name = "ngx_http_anddos_clients";
+    hash_init.pool = pool;
+    hash_init.temp_pool = NULL;
+    
+    if (ngx_hash_init(&hash_init, NULL, 0)!=NGX_OK){
+        return NGX_ERROR;
+    }
+    
+    
+    ngx_array_t * elements;
+    ngx_hash_key_t * arr_node;
+    
+    elements = ngx_array_create(pool, 64, sizeof(ngx_hash_key_t));
+    
+    arr_node = (ngx_hash_key_t*) ngx_array_push(elements);
+    ngx_str_t * sdf = ngx_string("asd");
+    arr_node->key = sdf;
+    arr_node->key_hash = ngx_hash_key_lc(arr_node->key.data, arr_node->key.len);
+    arr_node->value = (void*) "aufart";
+    
+    
+    
+    ngx_hash_add_key(ngx_http_anddos_clients, sdf, "asdasd", );
+    
+    
+    char * find;
+    ngx_uint_t k;
+    k    = ngx_hash_key_lc((u_char*) "marek", 6);
+    printf("%s key is %d\n", "marek", 6);
+    find = (char*) ngx_hash_find(ngx_http_anddos_clients, k, (u_char*) "marek", 6);
 
+    if (find) {
+        printf("get: %s\n", (char*) find);
+    } else {
+        printf("not found: %s\n", "marek");
+    }
+    
+    //ngx_array_destroy(elements);
+    //ngx_destroy_pool(pool);
+    */
     return NGX_OK;
 }

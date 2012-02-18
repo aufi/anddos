@@ -17,7 +17,7 @@ Install/compile anddos to nginx (development enviroment)
 
     # make install
     or
-    # /usr/local/nginx/sbin/nginx -s stop && make install && rm /usr/local/nginx/logs/* && /usr/local/nginx/sbin/nginx
+    # /usr/local/nginx/sbin/nginx -s stop; make install && rm /usr/local/nginx/logs/* && /usr/local/nginx/sbin/nginx
 
 
 Setup config files - nginx.conf
