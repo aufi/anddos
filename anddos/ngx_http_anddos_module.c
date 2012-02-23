@@ -15,7 +15,7 @@
 
 #define COOKIENAME "anddos_key"
 #define COOKIEKEYLEN 5  //??
-#define HASHKEYLEN 100
+#define HASHKEYLEN 200
 #define HASHTABLESIZE 1024      //100k
 
 static u_char ngx_anddos_fail_string[] = "<html><head><meta http-equiv='refresh' content='10'><title>Blocked by anddos</title></head><body><p>You have been blocked by anddos!</p></body></html>";
@@ -199,33 +199,25 @@ ngx_http_anddos_get_client_index(ngx_http_request_t *r) {
     //client stats update
     u_char text_key[HASHKEYLEN];
     memset(text_key, 0, HASHKEYLEN);
-    //host IP
-    ngx_snprintf(text_key, (int) r->connection->addr_text.len, "%s", r->connection->addr_text.data);
-    //text_key[(int) r->connection->addr_text.len] = 0;
     
-    //OR
-    //ngx_snprintf(text_key, (int) r->connection->addr_text.len, "%s %s", r->connection->addr_text.data, r->headers_in.user_agent->value.data);
-    //text_key[(int) r->connection->addr_text.len] = 0;
+    //FIX longer IP or UA header than HASHKEYLEN
     
-    //sprintf(text_key, "%s", (char *)r->connection->addr_text.data );
-    /* /user_agent header
     if (r->headers_in.user_agent) {
-        int ua_max_len;
-        if (HASHKEYLEN >= r->headers_in.user_agent->value   .len + r->connection->addr_text.len) {
-            ua_max_len = r->headers_in.user_agent->value.len;
-        } else {
-            ua_max_len = HASHKEYLEN - r->connection->addr_text.len;
-        }
-       
-        //strncat(text_key, r->headers_in.user_agent->value.data, ua_max_len);
-        //ngx_snprintf(text_key, HASHKEYLEN, "%s-%s", r->connection->addr_text.data, r->headers_in.user_agent->value.data);
+        //user_agent HEADER
+        u_char header_ua[HASHKEYLEN];
+        memset(header_ua, 0, HASHKEYLEN);
+        u_char header_ip[HASHKEYLEN];
+        memset(header_ip, 0, HASHKEYLEN);
+        ngx_snprintf(header_ip, (int) r->connection->addr_text.len, "%s", r->connection->addr_text.data);
+        ngx_snprintf(header_ua, (int) r->headers_in.user_agent->value.len, "%s", r->headers_in.user_agent->value.data);
+        ngx_snprintf(text_key, HASHKEYLEN, "%s%s", header_ip, header_ua);    
+        //ngx_snprintf(text_key, (int) (r->connection->addr_text.len + r->headers_in.user_agent->value.len + 1), "%s %s", r->connection->addr_text.data, r->headers_in.user_agent->value.data);
+    } else {
+        //host IP
+        ngx_snprintf(text_key, (int) r->connection->addr_text.len, "%s", r->connection->addr_text.data);
     }
-    
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS HASH TEXT KEY: %s", text_key);
-        
-    **/
-    
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS HASH TEXT KEY: %s, IP: %s, LEN: %d", text_key, r->connection->addr_text.data, (int) r->connection->addr_text.len);
+       
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS HASH TEXT KEY: %s, LEN: %d", text_key, ngx_strlen(text_key));
     
     unsigned int key = ngx_hash_key(text_key, ngx_strlen(text_key)) % HASHTABLESIZE;
     
@@ -238,7 +230,7 @@ ngx_http_anddos_clients_stats(ngx_http_request_t *r) {
     int i;
     for (i = 0; i < HASHTABLESIZE; i++) {
         if (ngx_http_anddos_clients[i].set) {
-            ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS clients: i: %d, request_count: %d; notmod_count: %d\n", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count);
+            ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: request_count: %d; notmod_count: %d, key: %d", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count, ngx_http_anddos_clients[i].key);
         }
     }
    
@@ -254,12 +246,13 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
     
     if (ngx_http_anddos_clients[key].set == 0) {
         //generate cookie key
-        //int client_key = rand();        //FIX predictable
+        int client_key = rand();        //FIX predictable
         
-        //u_char cookie_value_str[50];
-        //ngx_snprintf(cookie_value_str, 50, "%s=%d", COOKIENAME, client_key);
+        u_char cookie_value_str[50];
+        memset(cookie_value_str, 0, 50);
+        ngx_sprintf(cookie_value_str, "%s=%d", COOKIENAME, client_key);
         ngx_str_t cookie_name = ngx_string("Set-Cookie");
-        ngx_str_t cookie_value = ngx_string("asd=asd");
+        ngx_str_t cookie_value = ngx_string(cookie_value_str);
         //set a cookie
         ngx_int_t hr = set_custom_header_in_headers_out(r, &cookie_name, &cookie_value);
         if (hr != NGX_OK) {
@@ -269,11 +262,10 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
         ngx_http_anddos_clients[key].set = 1;
         ngx_http_anddos_clients[key].request_count = 1;
         ngx_http_anddos_clients[key].notmod_count = 0;
+        ngx_http_anddos_clients[key].key = client_key;
         //strcpy(ngx_http_anddos_clients[key].key, client_key);
         //ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS SET COOKIE: %s", cookie_value_str);
 
-        //ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client KEY: %s, UA: %s", client_key, r->headers_in.user_agent->value.data);
-    
         ngx_http_anddos_state.client_count += 1;
         
     } else {
@@ -329,14 +321,14 @@ ngx_http_anddos_filter_init(ngx_conf_t *cf) {
     int i;
     for (i = 0; i < HASHTABLESIZE; i++) {
         ngx_http_anddos_clients[i].set = 0;
-        ngx_http_anddos_clients[i].request_count = 5000;
-        ngx_http_anddos_clients[i].notmod_count = 5000;
-        //ngx_http_anddos_clients[i].key = ;
+        ngx_http_anddos_clients[i].request_count = 0;
+        ngx_http_anddos_clients[i].notmod_count = 0;
+        ngx_http_anddos_clients[i].key = 0;
     }
     
-    for (i = 0; i < HASHTABLESIZE; i++) {
-        printf("req: %d, notmod:  %d\n", ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count);
-    }
+    //for (i = 0; i < HASHTABLESIZE; i++) {
+    //    printf("req: %d, notmod:  %d\n", ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count);
+    //}
 
     return NGX_OK;
 }
