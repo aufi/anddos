@@ -14,7 +14,6 @@
 #include <ngx_http.h>
 
 #define COOKIENAME "anddos_key"
-#define COOKIEKEYLEN 5  //??
 #define HASHKEYLEN 200
 #define HASHTABLESIZE 1024      //100k
 
@@ -105,7 +104,6 @@ ngx_http_anddos_state_t ngx_http_anddos_state;
 
 
 //http://wiki.nginx.org/HeadersManagement
-
 ngx_int_t
 set_custom_header_in_headers_out(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t *value) {
     ngx_table_elt_t *h;
@@ -130,23 +128,34 @@ ngx_http_anddos_request_handler(ngx_http_request_t *r) {
     ngx_buf_t *b;
     ngx_chain_t out;
 
-    //decide whether is request bot or not
-    if (ngx_http_anddos_state.request_count % 3) return NGX_DECLINED; //development ;-)
+    //DECIDE whether is request bot or not
+    //KISS, one condition ideally, rest logic move to the learn_filter
+    //export blocked IP somewhere?
+    
+    unsigned int key = ngx_http_anddos_get_client_index(r);
+    
+    if (ngx_http_anddos_clients[key].set != 0) {
+    
+        //r->headers_in.cookies.elts //FIX find clients cookie
+        //FIX compare cookie content
+        //first req let pass (in normal conditions)
+        
+        if (ngx_http_anddos_state.request_count % 3) return NGX_DECLINED; //development ;-)
 
+    }
+    
+    
     rc = ngx_http_discard_request_body(r);
-
     if (rc != NGX_OK) {
         return rc;
     }
-
     ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS: request blocked");
-
     //FIX necessary ?
     /* set the 'Content-type' header */
     r->headers_out.content_type_len = sizeof ("text/html") - 1;
-    r->headers_out.content_type.len = sizeof ("text/html") - 1;
     r->headers_out.content_type.data = (u_char *) "text/html";
 
+    //FIX remove or keep?
     /* send the header only, if the request type is http 'HEAD' */
     if (r->method == NGX_HTTP_HEAD) {
         r->headers_out.status = NGX_HTTP_OK;
@@ -159,24 +168,20 @@ ngx_http_anddos_request_handler(ngx_http_request_t *r) {
     if (b == NULL) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
-
     /* attach this buffer to the buffer chain */
     out.buf = b;
     out.next = NULL;
-
     /* adjust the pointers of the buffer */
     b->pos = ngx_anddos_fail_string;
     b->last = ngx_anddos_fail_string + sizeof (ngx_anddos_fail_string) - 1;
     b->memory = 1; /* this buffer is in memory */
     b->last_buf = 1; /* this is the last buffer in the buffer chain */
-
     /* set the status line */
     r->headers_out.status = NGX_HTTP_PRECONDITION_FAILED; //for dev, FIX to NGX_HTTP_SERVICE_UNAVAILABLE in production 
     r->headers_out.content_length_n = sizeof (ngx_anddos_fail_string) - 1;
 
     /* send the headers of your response */
     rc = ngx_http_send_header(r);
-
     if (rc == NGX_ERROR || rc > NGX_OK || r->header_only) {
         return rc;
     }
@@ -187,9 +192,9 @@ ngx_http_anddos_request_handler(ngx_http_request_t *r) {
     cv.value.len = sizeof (ngx_anddos_fail_string) - 1;
     cv.value.data = ngx_anddos_fail_string;
 
-    /* send the buffer chain of your response */
-    return ngx_http_output_filter(r, &out);
-    //return ngx_http_send_response(r, r->headers_out.status, (ngx_str_t *) r->headers_out.content_type.data, &cv);
+    //FIX ensure which return is faster
+    //return ngx_http_output_filter(r, &out);
+    return ngx_http_send_response(r, r->headers_out.status, (ngx_str_t *) r->headers_out.content_type.data, &cv);
 
 }
 
@@ -200,7 +205,7 @@ ngx_http_anddos_get_client_index(ngx_http_request_t *r) {
     u_char text_key[HASHKEYLEN];
     memset(text_key, 0, HASHKEYLEN);
     
-    //FIX longer IP or UA header than HASHKEYLEN
+    //FIX IP or UA header can be longer than HASHKEYLEN
     
     if (r->headers_in.user_agent) {
         //user_agent HEADER
@@ -238,6 +243,24 @@ ngx_http_anddos_clients_stats(ngx_http_request_t *r) {
     
 }
 
+void
+ngx_http_anddos_set_cookie(ngx_http_request_t *r, int key) {
+    
+    u_char cookie_value_str[50];
+    memset(cookie_value_str, 0, 50);
+    
+    //assemble cookie text
+    ngx_snprintf(cookie_value_str, 50, "%s=%d", COOKIENAME, key);
+    ngx_str_t cookie_name = ngx_string("Set-Cookie");
+    ngx_str_t cookie_value = ngx_string(cookie_value_str);
+   
+   //set a cookie
+   ngx_int_t hr = set_custom_header_in_headers_out(r, &cookie_name, &cookie_value);
+   if (hr != NGX_OK) {
+        //return NGX_HTTP_INTERNAL_SERVER_ERROR; //FIX
+    }
+}
+
 static ngx_int_t
 ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
 
@@ -248,16 +271,9 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
         //generate cookie key
         int client_key = rand();        //FIX predictable
         
-        u_char cookie_value_str[50];
-        memset(cookie_value_str, 0, 50);
-        ngx_sprintf(cookie_value_str, "%s=%d", COOKIENAME, client_key);
-        ngx_str_t cookie_name = ngx_string("Set-Cookie");
-        ngx_str_t cookie_value = ngx_string(cookie_value_str);
-        //set a cookie
-        ngx_int_t hr = set_custom_header_in_headers_out(r, &cookie_name, &cookie_value);
-        if (hr != NGX_OK) {
-            return NGX_HTTP_INTERNAL_SERVER_ERROR; //FIX
-        }
+        //send a cookie key
+        ngx_http_anddos_set_cookie(r, client_key);
+        
         //setup in client hashtable
         ngx_http_anddos_clients[key].set = 1;
         ngx_http_anddos_clients[key].request_count = 1;
@@ -285,7 +301,6 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
 }
 
 //initializers
-
 static char *
 ngx_http_anddos(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
     ngx_http_core_loc_conf_t *clcf;
@@ -302,22 +317,12 @@ ngx_http_anddos_filter_init(ngx_conf_t *cf) {
     ngx_http_next_header_filter = ngx_http_top_header_filter;
     ngx_http_top_header_filter = ngx_http_anddos_learn_filter;
 
-    //client data init
-    //ngx_http_anddos_client_t ngx_http_anddos_clients[HASHTABLESIZE];
-    //ngx_http_anddos_state_t ngx_http_anddos_state;
-
     //basic server stats
     ngx_http_anddos_state.notmod_count = 0;
     ngx_http_anddos_state.request_count = 0;
     ngx_http_anddos_state.client_count = 0;
 
-    //init and  clean clients list
-    //ngx_http_anddos_clients = (ngx_http_anddos_client_t *) calloc(HASHTABLESIZE, sizeof(ngx_http_anddos_client_t));
-    if (ngx_http_anddos_clients == NULL) {
-        //ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "ANDDOS: failed to allocate clients hashtable.");
-        printf("ANDDOS: failed to allocate clients hashtable.");
-        return 1;       //FIX
-    }
+    //clean clients list
     int i;
     for (i = 0; i < HASHTABLESIZE; i++) {
         ngx_http_anddos_clients[i].set = 0;
@@ -325,10 +330,6 @@ ngx_http_anddos_filter_init(ngx_conf_t *cf) {
         ngx_http_anddos_clients[i].notmod_count = 0;
         ngx_http_anddos_clients[i].key = 0;
     }
-    
-    //for (i = 0; i < HASHTABLESIZE; i++) {
-    //    printf("req: %d, notmod:  %d\n", ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count);
-    //}
 
     return NGX_OK;
 }
