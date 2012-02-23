@@ -104,6 +104,7 @@ ngx_http_anddos_state_t ngx_http_anddos_state;
 
 
 //http://wiki.nginx.org/HeadersManagement
+
 ngx_int_t
 set_custom_header_in_headers_out(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t *value) {
     ngx_table_elt_t *h;
@@ -131,20 +132,20 @@ ngx_http_anddos_request_handler(ngx_http_request_t *r) {
     //DECIDE whether is request bot or not
     //KISS, one condition ideally, rest logic move to the learn_filter
     //export blocked IP somewhere?
+
+    if (ngx_http_anddos_state.request_count % 5) return NGX_DECLINED; //development ;-)
     
     unsigned int key = ngx_http_anddos_get_client_index(r);
-    
+
     if (ngx_http_anddos_clients[key].set != 0) {
-    
+
         //r->headers_in.cookies.elts //FIX find clients cookie
         //FIX compare cookie content
         //first req let pass (in normal conditions)
-        
-        if (ngx_http_anddos_state.request_count % 3) return NGX_DECLINED; //development ;-)
 
     }
-    
-    
+
+
     rc = ngx_http_discard_request_body(r);
     if (rc != NGX_OK) {
         return rc;
@@ -204,9 +205,9 @@ ngx_http_anddos_get_client_index(ngx_http_request_t *r) {
     //client stats update
     u_char text_key[HASHKEYLEN];
     memset(text_key, 0, HASHKEYLEN);
-    
+
     //FIX IP or UA header can be longer than HASHKEYLEN
-    
+
     if (r->headers_in.user_agent) {
         //user_agent HEADER
         u_char header_ua[HASHKEYLEN];
@@ -215,48 +216,67 @@ ngx_http_anddos_get_client_index(ngx_http_request_t *r) {
         memset(header_ip, 0, HASHKEYLEN);
         ngx_snprintf(header_ip, (int) r->connection->addr_text.len, "%s", r->connection->addr_text.data);
         ngx_snprintf(header_ua, (int) r->headers_in.user_agent->value.len, "%s", r->headers_in.user_agent->value.data);
-        ngx_snprintf(text_key, HASHKEYLEN, "%s%s", header_ip, header_ua);    
+        ngx_snprintf(text_key, HASHKEYLEN, "%s%s", header_ip, header_ua);
         //ngx_snprintf(text_key, (int) (r->connection->addr_text.len + r->headers_in.user_agent->value.len + 1), "%s %s", r->connection->addr_text.data, r->headers_in.user_agent->value.data);
     } else {
         //host IP
         ngx_snprintf(text_key, (int) r->connection->addr_text.len, "%s", r->connection->addr_text.data);
     }
-       
+
     ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS HASH TEXT KEY: %s, LEN: %d", text_key, ngx_strlen(text_key));
-    
+
     unsigned int key = ngx_hash_key(text_key, ngx_strlen(text_key)) % HASHTABLESIZE;
-    
+
     return key;
 }
 
 void
 ngx_http_anddos_clients_stats(ngx_http_request_t *r) {
 
+    //log
     int i;
     for (i = 0; i < HASHTABLESIZE; i++) {
         if (ngx_http_anddos_clients[i].set) {
             ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: request_count: %d; notmod_count: %d, key: %d", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count, ngx_http_anddos_clients[i].key);
         }
     }
-   
     ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS state: request_count: %d; notmod_count: %d, client_count: %d", ngx_http_anddos_state.request_count, ngx_http_anddos_state.notmod_count, ngx_http_anddos_state.client_count);
+
+    //DEV logging anddos state to file (after 1/5reqs)
+    if ((ngx_http_anddos_state.request_count % 5) != 2) return;
     
+    //else stats to file
+    FILE *f;
+    if (!(f = freopen("/tmp/anddos_state", "w", stdout))) {
+        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS error: save to file failed");
+    } else {
+        printf("ANDDOS state\nclient_count request_count notmod_count\n");
+        printf("%d\t%d\t%d\n", ngx_http_anddos_state.client_count, ngx_http_anddos_state.request_count, ngx_http_anddos_state.notmod_count);
+
+        printf("ANDDOS clients\nindex request_count notmod_count key\n");
+        for (i = 0; i < HASHTABLESIZE; i++) {
+            if (ngx_http_anddos_clients[i].set) {
+                printf("%d\t%d\t%d\t%d\n", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count, ngx_http_anddos_clients[i].key);
+            }
+        }
+        fclose(f);
+    }
 }
 
 void
 ngx_http_anddos_set_cookie(ngx_http_request_t *r, int key) {
-    
+
     u_char cookie_value_str[50];
     memset(cookie_value_str, 0, 50);
-    
+
     //assemble cookie text
     ngx_snprintf(cookie_value_str, 50, "%s=%d", COOKIENAME, key);
     ngx_str_t cookie_name = ngx_string("Set-Cookie");
     ngx_str_t cookie_value = ngx_string(cookie_value_str);
-   
-   //set a cookie
-   ngx_int_t hr = set_custom_header_in_headers_out(r, &cookie_name, &cookie_value);
-   if (hr != NGX_OK) {
+
+    //set a cookie
+    ngx_int_t hr = set_custom_header_in_headers_out(r, &cookie_name, &cookie_value);
+    if (hr != NGX_OK) {
         //return NGX_HTTP_INTERNAL_SERVER_ERROR; //FIX
     }
 }
@@ -266,14 +286,14 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
 
     //the client data
     unsigned int key = ngx_http_anddos_get_client_index(r);
-    
+
     if (ngx_http_anddos_clients[key].set == 0) {
         //generate cookie key
-        int client_key = rand();        //FIX predictable
-        
+        int client_key = rand(); //FIX predictable
+
         //send a cookie key
         ngx_http_anddos_set_cookie(r, client_key);
-        
+
         //setup in client hashtable
         ngx_http_anddos_clients[key].set = 1;
         ngx_http_anddos_clients[key].request_count = 1;
@@ -283,24 +303,25 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
         //ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS SET COOKIE: %s", cookie_value_str);
 
         ngx_http_anddos_state.client_count += 1;
-        
+
     } else {
-        
-       ngx_http_anddos_clients[key].request_count += 1;
-       if ((int) r->headers_out.status == 304) ngx_http_anddos_clients[key].notmod_count += 1;
-    
+
+        ngx_http_anddos_clients[key].request_count += 1;
+        if ((int) r->headers_out.status == 304) ngx_http_anddos_clients[key].notmod_count += 1;
+
     }
-    
+
     //server stats update
     ngx_http_anddos_state.request_count += 1;
     if ((int) r->headers_out.status == 304) ngx_http_anddos_state.notmod_count += 1;
- 
+
     ngx_http_anddos_clients_stats(r);
 
     return ngx_http_next_header_filter(r);
 }
 
 //initializers
+
 static char *
 ngx_http_anddos(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
     ngx_http_core_loc_conf_t *clcf;
