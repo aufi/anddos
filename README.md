@@ -22,11 +22,18 @@ Install/compile anddos to nginx (development enviroment)
 
 Setup config files - nginx.conf
 
-    location / {
-    	    anddos;     #add this line to enable anddos
-            root   html;
-            index  index.html index.htm;
-        }
+	location / {
+		
+	anddos;				#add this line to enable anddos
+
+	proxy_pass         http://127.0.0.1:80;		#your app server
+       	proxy_redirect     off;
+		
+       	proxy_set_header   Host             $host;
+       	proxy_set_header   X-Real-IP        $remote_addr;
+       	proxy_set_header   X-Forwarded-For  $proxy_add_x_forwarded_for;
+       	proxy_max_temp_file_size 0;
+    }
 
 (Re)start nginx
 

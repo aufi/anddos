@@ -86,17 +86,17 @@ typedef struct {
     //ngx_str_t browser;
     unsigned int request_count;
     unsigned int notmod_count;
-    //float avg_time;
-    //ngx_uint_t avg_time_count;
+    unsigned int avg_time;      //rounding is OK
     unsigned int key;
     u_char ua[HASHKEYLEN];
 } ngx_http_anddos_client_t;
 
 typedef struct {
+    unsigned char level;        //(N)ormal, (A)ctivated, (U)nder attack, (O)verloaded
     unsigned int request_count;
     unsigned int notmod_count;
     unsigned int client_count;
-    //float avg_time;
+    unsigned int avg_time;      //rounding is OK
 } ngx_http_anddos_state_t;
 
 
@@ -209,10 +209,6 @@ ngx_http_anddos_request_handler(ngx_http_request_t *r) {
 void
 ngx_http_anddos_get_client_text(u_char * text_key, ngx_http_request_t *r) {
 
-    //client stats update
-    //u_char text_key[HASHKEYLEN];
-    
-
     //FIX IP or UA header can be longer than HASHKEYLEN
 
     if (r->headers_in.user_agent) {
@@ -230,11 +226,8 @@ ngx_http_anddos_get_client_text(u_char * text_key, ngx_http_request_t *r) {
         ngx_snprintf(text_key, (int) r->connection->addr_text.len, "%s", r->connection->addr_text.data);
     }
 
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS HASH TEXT KEY: %s, LEN: %d", text_key, ngx_strlen(text_key));
+    //ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS HASH TEXT KEY: %s, LEN: %d", text_key, ngx_strlen(text_key));
 
-    //unsigned int key = ngx_hash_key(text_key, ngx_strlen(text_key)) % HASHTABLESIZE;
-
-    //return text_key;
 }
 
 void
@@ -244,10 +237,10 @@ ngx_http_anddos_clients_stats(ngx_http_request_t *r) {
     int i;
     for (i = 0; i < HASHTABLESIZE; i++) {
         if (ngx_http_anddos_clients[i].set) {
-            ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: request_count: %d; notmod_count: %d, key: %d", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count, ngx_http_anddos_clients[i].key);
+            ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: request_count: %d; notmod_count: %d, key: %d, avg_time: %d", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count, ngx_http_anddos_clients[i].key, ngx_http_anddos_clients[i].avg_time);
         }
     }
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS state: request_count: %d; notmod_count: %d, client_count: %d", ngx_http_anddos_state.request_count, ngx_http_anddos_state.notmod_count, ngx_http_anddos_state.client_count);
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS state[%c]: request_count: %d; notmod_count: %d, client_count: %d, avg_time: %d", ngx_http_anddos_state.level, ngx_http_anddos_state.request_count, ngx_http_anddos_state.notmod_count, ngx_http_anddos_state.client_count, ngx_http_anddos_state.avg_time);
 
     //DEV logging anddos state to file (after 1/5reqs)
     if ((ngx_http_anddos_state.request_count % 50) != 2) return;
@@ -257,13 +250,13 @@ ngx_http_anddos_clients_stats(ngx_http_request_t *r) {
     if (!(f = freopen(STATE_FILE, "w", stdout))) {
         ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS error: save to file failed");
     } else {
-        printf("ANDDOS state\nclient_count request_count notmod_count\n");
-        printf("%d\t%d\t%d\n", ngx_http_anddos_state.client_count, ngx_http_anddos_state.request_count, ngx_http_anddos_state.notmod_count);
+        printf("ANDDOS state\nclient_count request_count notmod_count avg_time\n");
+        printf("%d\t%d\t%d\t%d\n", ngx_http_anddos_state.client_count, ngx_http_anddos_state.request_count, ngx_http_anddos_state.notmod_count, ngx_http_anddos_state.avg_time);
 
-        printf("ANDDOS clients\nindex request_count notmod_count key IP/UA\n");
+        printf("ANDDOS clients\nindex request_count notmod_count key avg_time IP/UA\n");
         for (i = 0; i < HASHTABLESIZE; i++) {
             if (ngx_http_anddos_clients[i].set) {
-                printf("%d\t%d\t%d\t%d\t%s\n", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count, ngx_http_anddos_clients[i].key, ngx_http_anddos_clients[i].ua);
+                printf("%d\t%d\t%d\t%d\t%d\t%s\n", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count, ngx_http_anddos_clients[i].key, ngx_http_anddos_clients[i].avg_time, ngx_http_anddos_clients[i].ua);
             }
         }
         fclose(f);
@@ -284,8 +277,22 @@ ngx_http_anddos_set_cookie(ngx_http_request_t *r, int key) {
     //set a cookie
     ngx_int_t hr = set_custom_header_in_headers_out(r, &cookie_name, &cookie_value);
     if (hr != NGX_OK) {
-        //return NGX_HTTP_INTERNAL_SERVER_ERROR; //FIX
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ANDDOS client error: failed to set a cookie");
     }
+}
+
+int
+ngx_http_anddos_get_msec(ngx_http_request_t *r) {
+    //inspired by logmodule msec function
+    int ms;
+    ngx_time_t *tp;
+    
+    tp = ngx_timeofday();
+
+    ms = ((tp->sec - r->start_sec) * 1000 + (tp->msec - r->start_msec));
+    ms = ngx_max(ms, 0);
+    
+    return ms;
 }
 
 static ngx_int_t
@@ -296,14 +303,14 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
     memset(text_key, 0, HASHKEYLEN);
     ngx_http_anddos_get_client_text(text_key, r);
     unsigned int key = ngx_hash_key(text_key, ngx_strlen(text_key)) % HASHTABLESIZE;
-
+    int request_time = ngx_http_anddos_get_msec(r);
     
     //unsigned int key = ngx_http_anddos_get_client_index(r);
 
     if (ngx_http_anddos_clients[key].set == 0) {
         //generate cookie key
         int client_key = rand(); //FIX predictable
-
+        
         //send a cookie key
         ngx_http_anddos_set_cookie(r, client_key);
 
@@ -312,6 +319,8 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
         ngx_http_anddos_clients[key].request_count = 1;
         ngx_http_anddos_clients[key].notmod_count = 0;  //FIX first req can be also 304
         ngx_http_anddos_clients[key].key = client_key;
+        ngx_http_anddos_clients[key].avg_time = request_time;
+        
         ngx_http_anddos_get_client_text(ngx_http_anddos_clients[key].ua, r);
         //strcpy(ngx_http_anddos_clients[key].key, client_key);
         //ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS SET COOKIE: %s", cookie_value_str);
@@ -322,13 +331,16 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
 
         ngx_http_anddos_clients[key].request_count += 1;
         if ((int) r->headers_out.status == 304) ngx_http_anddos_clients[key].notmod_count += 1;
+        //avg time
+        ngx_http_anddos_clients[key].avg_time = ngx_http_anddos_clients[key].avg_time * (ngx_http_anddos_clients[key].request_count - 1) / ngx_http_anddos_clients[key].request_count + request_time / ngx_http_anddos_clients[key].request_count;
 
     }
 
     //server stats update
     ngx_http_anddos_state.request_count += 1;
     if ((int) r->headers_out.status == 304) ngx_http_anddos_state.notmod_count += 1;
-
+    ngx_http_anddos_state.avg_time = ngx_http_anddos_state.avg_time * (ngx_http_anddos_state.request_count - 1) / ngx_http_anddos_state.request_count + request_time / ngx_http_anddos_state.request_count;
+    
     ngx_http_anddos_clients_stats(r);
 
     return ngx_http_next_header_filter(r);
@@ -356,6 +368,8 @@ ngx_http_anddos_filter_init(ngx_conf_t *cf) {
     ngx_http_anddos_state.notmod_count = 0;
     ngx_http_anddos_state.request_count = 0;
     ngx_http_anddos_state.client_count = 0;
+    ngx_http_anddos_state.avg_time = 0;
+    ngx_http_anddos_state.level = 'N';
 
     //clean clients list
     int i;
@@ -363,9 +377,13 @@ ngx_http_anddos_filter_init(ngx_conf_t *cf) {
         ngx_http_anddos_clients[i].set = 0;
         ngx_http_anddos_clients[i].request_count = 0;
         ngx_http_anddos_clients[i].notmod_count = 0;
+        ngx_http_anddos_clients[i].avg_time = 0;
         ngx_http_anddos_clients[i].key = 0;
         memset(ngx_http_anddos_clients[i].ua, 0, 44);
     }
 
+    //dev print hashtable size
+    printf("ANDDOS hashtable size: %ld B\n", (long int)sizeof(ngx_http_anddos_clients));
+    
     return NGX_OK;
 }
