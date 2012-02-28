@@ -81,8 +81,8 @@ ngx_module_t ngx_http_anddos_module = {
     NGX_MODULE_V1_PADDING
 };
 
-typedef struct {
-    unsigned int set; //->bool
+typedef struct {        //FIX keep IP somewhere for blocking all clients from the IP
+    unsigned int set;   //->bool
     
     unsigned int request_count; //ensure that int overflow will not occur errors
     unsigned int notmod_count;
@@ -102,7 +102,7 @@ typedef struct {
 } ngx_http_anddos_client_t;
 
 typedef struct {
-    unsigned char level;        //(N)ormal, (A)ctivated, (U)nder attack, (O)verloaded
+    unsigned char level;        //(N)ormal, (A)ttack, (O)verload
 
     unsigned int request_count;
     unsigned int notmod_count;
@@ -239,7 +239,7 @@ ngx_http_anddos_get_client_text(u_char * text_key, ngx_http_request_t *r) {
         ngx_snprintf(header_ip, (int) r->connection->addr_text.len, "%s", r->connection->addr_text.data);
         ngx_snprintf(header_ua, (int) r->headers_in.user_agent->value.len, "%s", r->headers_in.user_agent->value.data);
         ngx_snprintf(text_key, HASHKEYLEN, "%s%s", header_ip, header_ua);
-        //ngx_snprintf(text_key, (int) (r->connection->addr_text.len + r->headers_in.user_agent->value.len + 1), "%s %s", r->connection->addr_text.data, r->headers_in.user_agent->value.data);
+        
     } else {
         //host IP
         ngx_snprintf(text_key, (int) r->connection->addr_text.len, "%s", r->connection->addr_text.data);
@@ -354,8 +354,6 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
     unsigned int key = ngx_hash_key(text_key, ngx_strlen(text_key)) % HASHTABLESIZE;
     int request_time = ngx_http_anddos_get_msec(r);
     
-    //unsigned int key = ngx_http_anddos_get_client_index(r);
-
     if (ngx_http_anddos_clients[key].set == 0) {
         //generate cookie key
         int client_key = rand(); //FIX predictable
@@ -380,7 +378,7 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
 
         ngx_http_anddos_clients[key].request_count += 1;
         if ((int) r->headers_out.status == 304) ngx_http_anddos_clients[key].notmod_count += 1;
-        //avg time
+        //FIX what about avg time and 304, image or other fast requests ?
         ngx_http_anddos_clients[key].avg_time = ngx_http_anddos_clients[key].avg_time * (ngx_http_anddos_clients[key].request_count - 1) / ngx_http_anddos_clients[key].request_count + request_time / ngx_http_anddos_clients[key].request_count;
 
         ngx_http_set_mimetype_stats(r, key);
@@ -421,6 +419,11 @@ ngx_http_anddos_filter_init(ngx_conf_t *cf) {
     ngx_http_anddos_state.client_count = 0;
     ngx_http_anddos_state.avg_time = 0;
     ngx_http_anddos_state.level = 'N';
+    ngx_http_anddos_state.html_count = 0;
+    ngx_http_anddos_state.css_count = 0;
+    ngx_http_anddos_state.javascript_count = 0;
+    ngx_http_anddos_state.image_count = 0;
+    ngx_http_anddos_state.other_count = 0;
 
     //clean clients list
     int i;
@@ -432,6 +435,11 @@ ngx_http_anddos_filter_init(ngx_conf_t *cf) {
         ngx_http_anddos_clients[i].key = 0;
         memset(ngx_http_anddos_clients[i].ua, 0, HASHKEYLEN);
         memset(ngx_http_anddos_clients[i].pass_seq, 0, SEQSIZE);
+        ngx_http_anddos_clients[i].html_count = 0;
+        ngx_http_anddos_clients[i].css_count = 0;
+        ngx_http_anddos_clients[i].javascript_count = 0;
+        ngx_http_anddos_clients[i].image_count = 0;
+        ngx_http_anddos_clients[i].other_count = 0;
     }
 
     //dev print hashtable size
