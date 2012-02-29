@@ -256,13 +256,13 @@ ngx_http_anddos_clients_stats(ngx_http_request_t *r) {
     int i;
     for (i = 0; i < HASHTABLESIZE; i++) {
         if (ngx_http_anddos_clients[i].set) {
-            ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: request_count: %d; notmod_count: %d, key: %d, avg_time: %d", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count, ngx_http_anddos_clients[i].key, ngx_http_anddos_clients[i].avg_time);
+            ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: request_count: %d; notmod_count: %d, key: %d, avg_time: %d, pass_seq: %s", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count, ngx_http_anddos_clients[i].key, ngx_http_anddos_clients[i].avg_time, (char *)ngx_http_anddos_clients[i].pass_seq);
         }
     }
     ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS state[%c]: request_count: %d; notmod_count: %d, client_count: %d, avg_time: %d", ngx_http_anddos_state.level, ngx_http_anddos_state.request_count, ngx_http_anddos_state.notmod_count, ngx_http_anddos_state.client_count, ngx_http_anddos_state.avg_time);
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS mimetypes: html: %d; css: %d, js: %d, images: %d, other: %d", ngx_http_anddos_state.html_count, ngx_http_anddos_state.css_count, ngx_http_anddos_state.javascript_count, ngx_http_anddos_state.image_count, ngx_http_anddos_state.other_count);
+    //ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS mimetypes: html: %d; css: %d, js: %d, images: %d, other: %d", ngx_http_anddos_state.html_count, ngx_http_anddos_state.css_count, ngx_http_anddos_state.javascript_count, ngx_http_anddos_state.image_count, ngx_http_anddos_state.other_count);
 
-    //DEV logging anddos state to file (after 1/5reqs)
+    //DEV logging anddos state to file (after 1/10reqs)
     if ((ngx_http_anddos_state.request_count % 10) != 2) return;
     
     //else stats to file
@@ -273,10 +273,10 @@ ngx_http_anddos_clients_stats(ngx_http_request_t *r) {
         printf("ANDDOS state\nclients req_cnt notmod_cnt avg_time html css javascript image other\n");
         printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", ngx_http_anddos_state.client_count, ngx_http_anddos_state.request_count, ngx_http_anddos_state.notmod_count, ngx_http_anddos_state.avg_time, ngx_http_anddos_state.html_count, ngx_http_anddos_state.css_count, ngx_http_anddos_state.javascript_count, ngx_http_anddos_state.image_count, ngx_http_anddos_state.other_count);
 
-        printf("ANDDOS clients\nindex req_cnt notmod_cnt avg_time html css javascript images other\n");
+        printf("ANDDOS clients\nindex req_cnt notmod_cnt avg_time html css javascript images other pass_seq\n");
         for (i = 0; i < HASHTABLESIZE; i++) {
             if (ngx_http_anddos_clients[i].set) {
-                printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count, ngx_http_anddos_clients[i].avg_time, ngx_http_anddos_clients[i].html_count, ngx_http_anddos_clients[i].css_count, ngx_http_anddos_clients[i].javascript_count, ngx_http_anddos_clients[i].javascript_count, ngx_http_anddos_clients[i].other_count);
+                printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count, ngx_http_anddos_clients[i].avg_time, ngx_http_anddos_clients[i].html_count, ngx_http_anddos_clients[i].css_count, ngx_http_anddos_clients[i].javascript_count, ngx_http_anddos_clients[i].javascript_count, ngx_http_anddos_clients[i].other_count, (char *)ngx_http_anddos_clients[i].pass_seq);
             }
         }
         fclose(f);
@@ -368,19 +368,27 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
         ngx_http_anddos_clients[key].key = client_key;
         ngx_http_anddos_clients[key].avg_time = request_time;
         ngx_http_anddos_get_client_text(ngx_http_anddos_clients[key].ua, r);
-        //ngx_http_anddos_clients[key].pass_seq[request_count % SEQSIZE] = (u_char) (ngx_hash_key(r.r) % 256);    //circ.register will differ same sequentions (longer than SEQSTEPS)
+        ngx_http_anddos_clients[key].pass_seq[0] = (u_char) (ngx_hash_key(r->uri.data, r->uri.len) % 94 + 33);   //printable chars from ascii //circ.register will differ same sequentions (longer than SEQSTEPS)
+        
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ANDDOS client[%d]: step id: %c", ngx_http_anddos_clients[key].key, ngx_http_anddos_clients[key].pass_seq[0]);
         
         ngx_http_set_mimetype_stats(r, key);
         
         ngx_http_anddos_state.client_count += 1;
 
+        //FIX how to distribute cookie key to multiple clients with same ip/ua?
     } else {
 
+         //web-pass sequention
+        ngx_http_anddos_clients[key].pass_seq[ngx_http_anddos_clients[key].request_count % SEQSIZE] = (u_char) (ngx_hash_key(r->uri.data, r->uri.len) % 94 + 33);    //circ.register will differ same sequentions (longer than SEQSTEPS)
+        
         ngx_http_anddos_clients[key].request_count += 1;
         if ((int) r->headers_out.status == 304) ngx_http_anddos_clients[key].notmod_count += 1;
         //FIX what about avg time and 304, image or other fast requests ?
         ngx_http_anddos_clients[key].avg_time = ngx_http_anddos_clients[key].avg_time * (ngx_http_anddos_clients[key].request_count - 1) / ngx_http_anddos_clients[key].request_count + request_time / ngx_http_anddos_clients[key].request_count;
-
+               
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ANDDOS client[%d]: step id: %c", ngx_http_anddos_clients[key].key, ngx_http_anddos_clients[key].pass_seq[ngx_http_anddos_clients[key].request_count % SEQSIZE]);
+        
         ngx_http_set_mimetype_stats(r, key);
         
     }
