@@ -17,7 +17,7 @@
 #define HASHKEYLEN 150
 #define HASHTABLESIZE 10240      //100k in production
 #define STATE_FILE "/tmp/anddos_state"
-#define SEQSIZE 32
+#define SEQSIZE 64
 
 static u_char ngx_anddos_fail_string[] = "<html><head><meta http-equiv='refresh' content='10'><title>Blocked by anddos</title></head><body><p>You have been blocked by anddos!</p></body></html>";
 
@@ -263,7 +263,7 @@ ngx_http_anddos_clients_stats(ngx_http_request_t *r) {
     //ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS mimetypes: html: %d; css: %d, js: %d, images: %d, other: %d", ngx_http_anddos_state.html_count, ngx_http_anddos_state.css_count, ngx_http_anddos_state.javascript_count, ngx_http_anddos_state.image_count, ngx_http_anddos_state.other_count);
 
     //DEV logging anddos state to file (after 1/10reqs)
-    if ((ngx_http_anddos_state.request_count % 10) != 2) return;
+    //if ((ngx_http_anddos_state.request_count % 10) != 2) return;
     
     //else stats to file
     FILE *f;
@@ -370,24 +370,27 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
         ngx_http_anddos_get_client_text(ngx_http_anddos_clients[key].ua, r);
         ngx_http_anddos_clients[key].pass_seq[0] = (u_char) (ngx_hash_key(r->uri.data, r->uri.len) % 94 + 33);   //printable chars from ascii //circ.register will differ same sequentions (longer than SEQSTEPS)
         
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ANDDOS client[%d]: step id: %c", ngx_http_anddos_clients[key].key, ngx_http_anddos_clients[key].pass_seq[0]);
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ANDDOS client[%d]: step id: %c for uri: %s", ngx_http_anddos_clients[key].key, ngx_http_anddos_clients[key].pass_seq[0], (char*)r->uri.data);
         
         ngx_http_set_mimetype_stats(r, key);
         
         ngx_http_anddos_state.client_count += 1;
 
-        //FIX how to distribute cookie key to multiple clients with same ip/ua?
+        //FIX how to distribute cookie key to multiple clients with same ip/ua? does not matter
     } else {
 
          //web-pass sequention
-        ngx_http_anddos_clients[key].pass_seq[ngx_http_anddos_clients[key].request_count % SEQSIZE] = (u_char) (ngx_hash_key(r->uri.data, r->uri.len) % 94 + 33);    //circ.register will differ same sequentions (longer than SEQSTEPS)
+        //ngx_http_anddos_clients[key].pass_seq[ngx_http_anddos_clients[key].request_count % (SEQSIZE - 1)] = (u_char) (ngx_hash_key(r->uri.data, r->uri.len) % 94 + 33);    //circ.register will differ same sequentions (longer than SEQSTEPS)
+        if (ngx_http_anddos_clients[key].request_count < (SEQSIZE - 1)) {    //register for first n requested url hashes
+            ngx_http_anddos_clients[key].pass_seq[ngx_http_anddos_clients[key].request_count] = (u_char) (ngx_hash_key(r->uri.data, r->uri.len) % 94 + 33);
+        }
         
         ngx_http_anddos_clients[key].request_count += 1;
         if ((int) r->headers_out.status == 304) ngx_http_anddos_clients[key].notmod_count += 1;
         //FIX what about avg time and 304, image or other fast requests ?
         ngx_http_anddos_clients[key].avg_time = ngx_http_anddos_clients[key].avg_time * (ngx_http_anddos_clients[key].request_count - 1) / ngx_http_anddos_clients[key].request_count + request_time / ngx_http_anddos_clients[key].request_count;
                
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ANDDOS client[%d]: step id: %c", ngx_http_anddos_clients[key].key, ngx_http_anddos_clients[key].pass_seq[ngx_http_anddos_clients[key].request_count % SEQSIZE]);
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ANDDOS client[%d]: step id: %c for uri: %s", ngx_http_anddos_clients[key].key, ngx_http_anddos_clients[key].pass_seq[ngx_http_anddos_clients[key].request_count % SEQSIZE], (char*)r->uri.data);
         
         ngx_http_set_mimetype_stats(r, key);
         
