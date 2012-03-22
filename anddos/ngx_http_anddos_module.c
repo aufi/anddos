@@ -87,7 +87,11 @@ typedef struct { //FIX keep IP somewhere for blocking all clients from the IP
     unsigned int set; //->bool
 
     unsigned int request_count; //ensure that int overflow will not occur errors
-    unsigned int notmod_count;
+    unsigned int http1_count;
+    unsigned int http2_count;
+    unsigned int http3_count;
+    unsigned int http4_count;
+    unsigned int http5_count;
     unsigned int avg_time; //rounding is OK
     unsigned int html_avg_time;
     unsigned int key;
@@ -110,7 +114,11 @@ typedef struct {
     unsigned char level; //(N)ormal, (A)ttack, (O)verload
 
     unsigned int request_count;
-    unsigned int notmod_count;
+    unsigned int http1_count;
+    unsigned int http2_count;
+    unsigned int http3_count;
+    unsigned int http4_count;
+    unsigned int http5_count;
     unsigned int client_count;
     unsigned int avg_time;
     unsigned int html_avg_time;
@@ -262,10 +270,10 @@ ngx_http_anddos_clients_stats(ngx_http_request_t *r) {
     int i;
     for (i = 0; i < HASHTABLESIZE; i++) {
         if (ngx_http_anddos_clients[i].set) {
-            ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: request_count: %d; notmod_count: %d, key: %d, avg_time: %d, pass_seq: %s", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count, ngx_http_anddos_clients[i].key, ngx_http_anddos_clients[i].avg_time, (char *) ngx_http_anddos_clients[i].pass_seq);
+            ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: request_count: %d; http200_count: %d, key: %d, avg_time: %d, pass_seq: %s", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].http2_count, ngx_http_anddos_clients[i].key, ngx_http_anddos_clients[i].avg_time, (char *) ngx_http_anddos_clients[i].pass_seq);
         }
     }
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS state[%c]: request_count: %d; notmod_count: %d, client_count: %d, avg_time: %d", ngx_http_anddos_state.level, ngx_http_anddos_state.request_count, ngx_http_anddos_state.notmod_count, ngx_http_anddos_state.client_count, ngx_http_anddos_state.avg_time);
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS state[%c]: request_count: %d; http200_count: %d, client_count: %d, avg_time: %d", ngx_http_anddos_state.level, ngx_http_anddos_state.request_count, ngx_http_anddos_state.http2_count, ngx_http_anddos_state.client_count, ngx_http_anddos_state.avg_time);
     //ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS mimetypes: html: %d; css: %d, js: %d, images: %d, other: %d", ngx_http_anddos_state.html_count, ngx_http_anddos_state.css_count, ngx_http_anddos_state.javascript_count, ngx_http_anddos_state.image_count, ngx_http_anddos_state.other_count);
 
     //DEV logging anddos state to file (after 1/100reqs)
@@ -276,13 +284,13 @@ ngx_http_anddos_clients_stats(ngx_http_request_t *r) {
     if (!(f = freopen(STATE_FILE, "w", stdout))) {
         ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS error: save to file failed");
     } else {
-        printf("ANDDOS state\nclients req_cnt notmod_cnt avg_time html_avg_time html css javascript image other\n");
-        printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", ngx_http_anddos_state.client_count, ngx_http_anddos_state.request_count, ngx_http_anddos_state.notmod_count, ngx_http_anddos_state.avg_time, ngx_http_anddos_state.html_avg_time, ngx_http_anddos_state.html_count, ngx_http_anddos_state.css_count, ngx_http_anddos_state.javascript_count, ngx_http_anddos_state.image_count, ngx_http_anddos_state.other_count);
+        printf("ANDDOS state\nclients req_cnt http1_cnt http2_cnt http3_cnt http4_cnt http5_cnt avg_time html_avg_time html css javascript image other\n");
+        printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", ngx_http_anddos_state.client_count, ngx_http_anddos_state.request_count, ngx_http_anddos_state.http1_count, ngx_http_anddos_state.http2_count, ngx_http_anddos_state.http3_count, ngx_http_anddos_state.http4_count, ngx_http_anddos_state.http5_count, ngx_http_anddos_state.avg_time, ngx_http_anddos_state.html_avg_time, ngx_http_anddos_state.html_count, ngx_http_anddos_state.css_count, ngx_http_anddos_state.javascript_count, ngx_http_anddos_state.image_count, ngx_http_anddos_state.other_count);
 
-        printf("ANDDOS clients\nindex req_cnt notmod_cnt avg_time html_avg_time html css javascript images other pass_seq    ip_ua\n");
+        printf("ANDDOS clients\nindex req_cnt http1_cnt http2_cnt http3_cnt http4_cnt http5_cnt avg_time html_avg_time html css javascript images other pass_seq    ip_ua\n");
         for (i = 0; i < HASHTABLESIZE; i++) {
             if (ngx_http_anddos_clients[i].set) {
-                printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%s\n", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].notmod_count, ngx_http_anddos_clients[i].avg_time, ngx_http_anddos_clients[i].html_avg_time, ngx_http_anddos_clients[i].html_count, ngx_http_anddos_clients[i].css_count, ngx_http_anddos_clients[i].javascript_count, ngx_http_anddos_clients[i].javascript_count, ngx_http_anddos_clients[i].other_count, (char *) ngx_http_anddos_clients[i].pass_seq, (char *) ngx_http_anddos_clients[i].ua);
+                printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%s\n", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].http1_count, ngx_http_anddos_clients[i].http2_count, ngx_http_anddos_clients[i].http3_count, ngx_http_anddos_clients[i].http4_count, ngx_http_anddos_clients[i].http5_count, ngx_http_anddos_clients[i].avg_time, ngx_http_anddos_clients[i].html_avg_time, ngx_http_anddos_clients[i].html_count, ngx_http_anddos_clients[i].css_count, ngx_http_anddos_clients[i].javascript_count, ngx_http_anddos_clients[i].javascript_count, ngx_http_anddos_clients[i].other_count, (char *) ngx_http_anddos_clients[i].pass_seq, (char *) ngx_http_anddos_clients[i].ua);
             }
         }
         fclose(f);
@@ -324,7 +332,7 @@ ngx_http_anddos_get_msec(ngx_http_request_t *r) {
 inline void
 ngx_http_set_mimetype_stats(ngx_http_request_t *r, int key, int request_time) {
 
-    if ((int) r->headers_out.status == 304) { //exclude http 304 not-modified responses
+    if ((int) r->headers_out.status >= 300 || (int) r->headers_out.status < 200) { //exclude no success (<>200) responses
         return;
     }
 
@@ -352,9 +360,9 @@ ngx_http_set_mimetype_stats(ngx_http_request_t *r, int key, int request_time) {
         //ngx_http_anddos_state.avg_time = ngx_http_anddos_state.avg_time * (ngx_http_anddos_state.request_count - ngx_http_anddos_state.notmod_count - 1) / (ngx_http_anddos_state.request_count - ngx_http_anddos_state.notmod_count) + request_time / (ngx_http_anddos_state.request_count - ngx_http_anddos_state.notmod_count);
         //ngx_http_anddos_clients[key].avg_time = ngx_http_anddos_clients[key].avg_time * (ngx_http_anddos_clients[key].request_count - 1) / ngx_http_anddos_clients[key].request_count + request_time / ngx_http_anddos_clients[key].request_count;
         //is better to risk overflow or rounding ? :)
-        cnt = ngx_http_anddos_state.request_count - ngx_http_anddos_state.notmod_count - ngx_http_anddos_state.html_count;
+        cnt = ngx_http_anddos_state.http2_count - ngx_http_anddos_state.html_count;
         ngx_http_anddos_state.avg_time = (ngx_http_anddos_state.avg_time * (cnt - 1) + request_time) / cnt;
-        cnt = ngx_http_anddos_clients[key].request_count - ngx_http_anddos_clients[key].notmod_count - ngx_http_anddos_clients[key].html_count;
+        cnt = ngx_http_anddos_clients[key].http2_count - ngx_http_anddos_clients[key].html_count;
         ngx_http_anddos_clients[key].avg_time = (ngx_http_anddos_clients[key].avg_time * (cnt - 1) + request_time ) / cnt;
         
         //what about browser's cache, maybe understand to http headers ?
@@ -377,6 +385,35 @@ ngx_http_set_mimetype_stats(ngx_http_request_t *r, int key, int request_time) {
     }
 }
 
+inline void
+ngx_http_set_httpcode_stats(ngx_http_request_t *r, int key) {
+    
+    //FIX 3xx or keep 304 as a special code, which proofs that client has a local cache?
+    
+    int code = (int) r->headers_out.status;
+    
+    if (code < 200) { 
+        ngx_http_anddos_clients[key].http1_count += 1;
+        ngx_http_anddos_state.http1_count += 1;
+    } else
+        if (code < 300) { 
+        ngx_http_anddos_clients[key].http2_count += 1;
+        ngx_http_anddos_state.http2_count += 1;
+    } else
+        if (code < 400) { 
+        ngx_http_anddos_clients[key].http3_count += 1;
+        ngx_http_anddos_state.http3_count += 1;
+    } else
+        if (code < 500) { 
+        ngx_http_anddos_clients[key].http4_count += 1;
+        ngx_http_anddos_state.http4_count += 1;
+    } else { 
+        ngx_http_anddos_clients[key].http5_count += 1;
+        ngx_http_anddos_state.http5_count += 1;
+    }
+
+}
+
 static ngx_int_t
 ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
 
@@ -389,7 +426,7 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
 
     //server stats update
     ngx_http_anddos_state.request_count += 1;
-    if ((int) r->headers_out.status == 304) ngx_http_anddos_state.notmod_count += 1;
+    //if ((int) r->headers_out.status == 304) ngx_http_anddos_state.notmod_count += 1;
     
     if (ngx_http_anddos_clients[key].set == 0) {
         //generate cookie key
@@ -401,7 +438,7 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
         //setup in client hashtable
         ngx_http_anddos_clients[key].set = 1;
         ngx_http_anddos_clients[key].request_count = 1;
-        ngx_http_anddos_clients[key].notmod_count = 0; //FIX first req response can be also 304
+        //ngx_http_anddos_clients[key].notmod_count = 0; //FIX first req response can be also 304
         ngx_http_anddos_clients[key].key = client_key;
         //ngx_http_anddos_clients[key].avg_time = request_time;
         ngx_http_anddos_get_client_text(ngx_http_anddos_clients[key].ua, r);
@@ -409,6 +446,8 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
 
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ANDDOS client[%d]: step id: %c for uri: %s", ngx_http_anddos_clients[key].key, ngx_http_anddos_clients[key].pass_seq[0], (char*) r->uri.data);
 
+        ngx_http_set_httpcode_stats(r, key);
+        
         ngx_http_set_mimetype_stats(r, key, request_time);
 
         ngx_http_anddos_state.client_count += 1;
@@ -423,12 +462,12 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
         }
 
         ngx_http_anddos_clients[key].request_count += 1;
-        if ((int) r->headers_out.status == 304) ngx_http_anddos_clients[key].notmod_count += 1;
-        //FIX what about avg time and 304, image or other fast requests ?
-        //ngx_http_anddos_clients[key].avg_time = ngx_http_anddos_clients[key].avg_time * (ngx_http_anddos_clients[key].request_count - 1) / ngx_http_anddos_clients[key].request_count + request_time / ngx_http_anddos_clients[key].request_count;
+        //if ((int) r->headers_out.status == 304) ngx_http_anddos_clients[key].notmod_count += 1;
 
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ANDDOS client[%d]: step id: %c for uri: %s", ngx_http_anddos_clients[key].key, ngx_http_anddos_clients[key].pass_seq[ngx_http_anddos_clients[key].request_count % SEQSIZE], (char*) r->uri.data);
 
+        ngx_http_set_httpcode_stats(r, key);
+        
         ngx_http_set_mimetype_stats(r, key, request_time);
 
     }
@@ -457,6 +496,7 @@ ngx_http_anddos_filter_init(ngx_conf_t *cf) {
     ngx_http_top_header_filter = ngx_http_anddos_learn_filter;
 
     //basic server stats
+    /*
     ngx_http_anddos_state.notmod_count = 0;
     ngx_http_anddos_state.request_count = 0;
     ngx_http_anddos_state.client_count = 0;
@@ -467,24 +507,24 @@ ngx_http_anddos_filter_init(ngx_conf_t *cf) {
     ngx_http_anddos_state.css_count = 0;
     ngx_http_anddos_state.javascript_count = 0;
     ngx_http_anddos_state.image_count = 0;
-    ngx_http_anddos_state.other_count = 0;
+    ngx_http_anddos_state.other_count = 0;*/
 
     //clean clients list
     int i;
     for (i = 0; i < HASHTABLESIZE; i++) {
-        ngx_http_anddos_clients[i].set = 0;
+        /*ngx_http_anddos_clients[i].set = 0;
         ngx_http_anddos_clients[i].request_count = 0;
         ngx_http_anddos_clients[i].notmod_count = 0;
         ngx_http_anddos_clients[i].avg_time = 0;
         ngx_http_anddos_clients[i].html_avg_time = 0;
-        ngx_http_anddos_clients[i].key = 0;
+        ngx_http_anddos_clients[i].key = 0;*/
         memset(ngx_http_anddos_clients[i].ua, 0, HASHKEYLEN);
         memset(ngx_http_anddos_clients[i].pass_seq, 0, SEQSIZE);
-        ngx_http_anddos_clients[i].html_count = 0;
+        /*ngx_http_anddos_clients[i].html_count = 0;
         ngx_http_anddos_clients[i].css_count = 0;
         ngx_http_anddos_clients[i].javascript_count = 0;
         ngx_http_anddos_clients[i].image_count = 0;
-        ngx_http_anddos_clients[i].other_count = 0;
+        ngx_http_anddos_clients[i].other_count = 0;*/
     }
 
     //dev print hashtable size
