@@ -49,13 +49,52 @@ typedef struct {
 //data init
 ngx_http_anddos_client_t *ngx_http_anddos_clients;
 ngx_http_anddos_state_t ngx_http_anddos_state;
-
+ * 
+ * 
+ * 
+ * 
 /*
  * 
  */
+inline float
+ngx_http_count_fdiff(float global, float client) {
+    //what about attack by many very fast and not "heavy" reqs ..no reason to do that, but better block both extrems
+    
+    //global = 100 * global + 1;
+    //client = 100 * client + 1;
+    
+    if (global == 0) return 0;
+    
+    if (client > global)
+        return (client - global) / global;       //or non-linear math function => exp
+    else
+        return (global - client) / global;
+}
+
+
+inline unsigned int
+ngx_http_count_score_httpcode(unsigned int cnt, unsigned int c1, unsigned int c2, unsigned int c3, unsigned int c4, unsigned int c5) {
+    
+    //cnt = 50
+    
+    float w1 = ngx_http_count_fdiff((float)0 / 70, (float)c1 / cnt);  //0
+    float w2 = ngx_http_count_fdiff((float)30 / 70, (float)c2 / cnt); //20
+    float w3 = ngx_http_count_fdiff((float)36 / 70, (float)c3 / cnt); //28
+    float w4 = ngx_http_count_fdiff((float)3 / 70, (float)c4 / cnt);  //2
+    float w5 = ngx_http_count_fdiff((float)1 / 70, (float)c5 / cnt);  //0
+    
+    //or weighted sum ?
+    
+    printf("%f %f %f %f %f\n", w1, w2, w3, w4, w5);
+    
+    return (int) (100 * (w1 + w2 + w3 + w4 + w5));
+}
+
+
+
 int main(int argc, char** argv) {
 
-    
+/*    
     //client stats update
     char text_key[HASHKEYLEN];
     //host IP
@@ -71,10 +110,10 @@ int main(int argc, char** argv) {
         strncpy(text_key, r->headers_in.user_agent->value.data, ua_max_len);
     }
     
-    
+  */  
     
     printf("nazdar\n");
-    
+    /*
     ngx_http_anddos_clients = (ngx_http_anddos_client_t *) calloc(1000, sizeof(ngx_http_anddos_client_t));
     
     char * t = "asdasd";
@@ -103,10 +142,16 @@ int main(int argc, char** argv) {
     printf("ngx_http_anddos_state.request_count: %lu\n", sizeof(ngx_http_anddos_state.request_count));
     
     printf("*ngx_http_anddos_state.request_count: %lu\n", sizeof(&ngx_http_anddos_state.request_count));
+    */
+    
+    float x = ngx_http_count_score_httpcode(50, 0, 20, 28, 2, 0);
+    
+    printf("%f\n", x);
     
     
+    float test0 = ngx_http_count_fdiff(0, 0);
+    printf("rozdil nul %f\n", test0);
     
-    return (EXIT_SUCCESS);
+    return (0);
 }
 
-*/

@@ -19,7 +19,7 @@
 #define HASHKEYLEN 150
 #define HASHTABLESIZE 10240      //100k in production
 #define STATE_FILE "/tmp/anddos_state"
-#define SEQSIZE 64
+#define SEQSIZE 32
 
 static u_char ngx_anddos_fail_string[] = "<html><head><meta http-equiv='refresh' content='5'><title>Blocked by anddos</title></head><body><p>You have been blocked by anddos!</p></body></html>";
 
@@ -282,7 +282,7 @@ ngx_http_anddos_clients_stats(ngx_http_request_t *r) {
     //ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS mimetypes: html: %d; css: %d, js: %d, images: %d, other: %d", ngx_http_anddos_state.html_count, ngx_http_anddos_state.css_count, ngx_http_anddos_state.javascript_count, ngx_http_anddos_state.image_count, ngx_http_anddos_state.other_count);
 
     //DEV logging anddos state to file (after 1/100reqs)
-    if ((ngx_http_anddos_state.request_count % 3) != 2) return;
+    //if ((ngx_http_anddos_state.request_count % 100) != 2) return;
 
     //else stats to file
     FILE *f;
@@ -425,7 +425,19 @@ ngx_http_set_httpcode_stats(ngx_http_request_t *r, int key) {
 inline unsigned int
 ngx_http_count_diff(unsigned int global, unsigned int client) {
     //what about attack by many very fast and not "heavy" reqs ..no reason to do that, but better block both extrems
-    return 100 * abs(client - global) / global;       //or non-linear math function - log/exp ?
+    return abs(client - global) / global;       //or non-linear math function - log/exp ?
+}
+
+inline float
+ngx_http_count_fdiff(float global, float client) {
+    //what about attack by many very fast and not "heavy" reqs ..no reason to do that, but better block both extrems
+    
+    if (global == 0) return 0;
+    
+    if (client > global)
+        return (client - global) / global;       //or non-linear math function => exp
+    else
+        return (global - client) / global;
 }
 
 int
@@ -433,6 +445,8 @@ ngx_http_anddos_decide(ngx_http_request_t *r, int key) {
     //make a decision
     int score;
     score = 1;
+    
+    //setting min/max
     
     //count score in several behaviour params (http response code, mimetype + time, pass seq) in filter, here only decide by global status and these scores
     
@@ -446,21 +460,64 @@ ngx_http_anddos_decide(ngx_http_request_t *r, int key) {
     return score;
 }
 
+
+inline unsigned int
+ngx_http_count_score_time(unsigned int g_avg, unsigned int c_avg, unsigned int g_html, unsigned int c_html) {
+
+        return (int) ((100 * ngx_http_count_diff(g_avg, c_avg) + 100 * ngx_http_count_diff(g_html, c_html)) / 2 );
+}
+
+inline unsigned int
+ngx_http_count_score_mimetype(unsigned int cnt, unsigned int html, unsigned int css, unsigned int javascript, unsigned int image, unsigned int other) {
+
+    float w1 = ngx_http_count_fdiff((float)ngx_http_anddos_state.html_count / ngx_http_anddos_state.request_count, (float)html / cnt);
+    float w2 = ngx_http_count_fdiff((float)ngx_http_anddos_state.css_count / ngx_http_anddos_state.request_count, (float)css / cnt);
+    float w3 = ngx_http_count_fdiff((float)ngx_http_anddos_state.javascript_count / ngx_http_anddos_state.request_count, (float)javascript / cnt);
+    float w4 = ngx_http_count_fdiff((float)ngx_http_anddos_state.image_count / ngx_http_anddos_state.request_count, (float)image / cnt);
+    float w5 = ngx_http_count_fdiff((float)ngx_http_anddos_state.other_count / ngx_http_anddos_state.request_count, (float)other / cnt);
+    
+    //or weighted sum ?
+    //ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ANDDOS score[%d]: %d %d %d %d %d", w1, w2, w3, w4, w5);
+    
+    return (int) (100 * (w1 + w2 + w3 + w4 + w5));      //lost precision?
+}
+
+inline unsigned int
+ngx_http_count_score_httpcode(unsigned int cnt, unsigned int c1, unsigned int c2, unsigned int c3, unsigned int c4, unsigned int c5) {
+
+    float w1 = ngx_http_count_fdiff((float)ngx_http_anddos_state.http1_count / ngx_http_anddos_state.request_count, (float)c1 / cnt);
+    float w2 = ngx_http_count_fdiff((float)ngx_http_anddos_state.http2_count / ngx_http_anddos_state.request_count, (float)c2 / cnt);
+    float w3 = ngx_http_count_fdiff((float)ngx_http_anddos_state.http3_count / ngx_http_anddos_state.request_count, (float)c3 / cnt);
+    float w4 = ngx_http_count_fdiff((float)ngx_http_anddos_state.http4_count / ngx_http_anddos_state.request_count, (float)c4 / cnt);
+    float w5 = ngx_http_count_fdiff((float)ngx_http_anddos_state.http5_count / ngx_http_anddos_state.request_count, (float)c5 / cnt);
+    
+    //or weighted sum ?
+    //ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ANDDOS score[%d]: %d %d %d %d %d", w1, w2, w3, w4, w5);
+    
+    return (int) (100 * (w1 + w2 + w3 + w4 + w5));      //lost precision?
+}    
+
 void
 ngx_http_count_scores(ngx_http_request_t *r, int key) {
     
-    //http
-        
+    //httpcode
+    ngx_http_anddos_clients[key].httpcode_score = ngx_http_count_score_httpcode(
+            ngx_http_anddos_clients[key].request_count, ngx_http_anddos_clients[key].http1_count, ngx_http_anddos_clients[key].http2_count, 
+            ngx_http_anddos_clients[key].http3_count, ngx_http_anddos_clients[key].http4_count, ngx_http_anddos_clients[key].http5_count
+        );
     
     //mimetype
-    ngx_http_anddos_clients[key].mimetype_score = 10;
+    ngx_http_anddos_clients[key].mimetype_score = ngx_http_count_score_mimetype(
+            ngx_http_anddos_clients[key].request_count, ngx_http_anddos_clients[key].html_count, ngx_http_anddos_clients[key].css_count, 
+            ngx_http_anddos_clients[key].javascript_count, ngx_http_anddos_clients[key].image_count, ngx_http_anddos_clients[key].other_count
+        );
     
     //time
-    ngx_http_anddos_clients[key].time_score = ( ngx_http_count_diff(ngx_http_anddos_state.avg_time, ngx_http_anddos_clients[key].avg_time) 
-            + ngx_http_count_diff(ngx_http_anddos_state.html_avg_time, ngx_http_anddos_clients[key].html_avg_time )) / 2;
+    ngx_http_anddos_clients[key].time_score = ngx_http_count_score_time( ngx_http_anddos_state.avg_time, ngx_http_anddos_clients[key].avg_time, 
+            ngx_http_anddos_state.html_avg_time, ngx_http_anddos_clients[key].html_avg_time );
     
     //passeq
-    
+    //count of unique paths, what globally??
 }
 
 static ngx_int_t
@@ -486,8 +543,8 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
         //generate cookie key
         int client_key = rand(); //FIX predictable
 
-        //send a cookie key
-        ngx_http_anddos_set_cookie(r, client_key);
+        //send a cookie key---------disabled---------
+        //ngx_http_anddos_set_cookie(r, client_key);
 
         //setup in client hashtable
         ngx_http_anddos_clients[key].set = 1;
