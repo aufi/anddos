@@ -21,6 +21,7 @@
 #define HASHTABLESIZE 10240      //100k in production
 #define STATE_FILE "/tmp/anddos_state"
 #define SEQSIZE 32
+#define INITTHRESHOLD 9999
 
 static u_char ngx_anddos_fail_string[] = "<html><head><meta http-equiv='refresh' content='5'><title>Blocked!</title></head><body><p>You have been blocked by ANDDOS!</p></body></html>";
 
@@ -121,8 +122,10 @@ typedef struct { //FIX keep IP somewhere for blocking all clients from the IP
 } ngx_http_anddos_client_t;
 
 typedef struct {
-    unsigned char level; //(0)Normal, (10)Attack, (100)Overload
+    unsigned char level; //(0)Normal, (10)Attack, (100)Overload; not used yet
 
+    unsigned int threshold;
+    
     unsigned int request_count;
     unsigned int notmod_count;
     unsigned int http1_count;
@@ -450,12 +453,6 @@ ngx_http_anddos_count_fdiff(float global, float client) {
         return (global - client) / global;
 }
 
-inline int
-ngx_http_anddos_get_threshold() {
-    
-    return 800; //FIX
-}
-
 int
 ngx_http_anddos_decide(ngx_http_request_t *r, int key) {
     //make a decision
@@ -466,11 +463,9 @@ ngx_http_anddos_decide(ngx_http_request_t *r, int key) {
     int dec;
     dec = 1;
     
-    int score = ngx_http_anddos_clients[key].httpcode_score + ngx_http_anddos_clients[key].mimetype_score + ngx_http_anddos_clients[key].time_score;
+    unsigned int score = ngx_http_anddos_clients[key].httpcode_score + ngx_http_anddos_clients[key].mimetype_score + ngx_http_anddos_clients[key].time_score;
     
-    int threshold = ngx_http_anddos_get_threshold();
-    
-    if (score > threshold) dec = 2;
+    if (score > ngx_http_anddos_state.threshold) dec = 2;
 
     //when block some client compensate global stats by opposite value of "bad" param?
     
@@ -537,6 +532,33 @@ ngx_http_anddos_count_scores(ngx_http_request_t *r, int key) {
     //count of unique paths, what globally??
 }
 
+inline int
+ngx_http_anddos_count_threshold() {
+    
+    if (ngx_http_anddos_state.request_count > 37) return INITTHRESHOLD;
+    
+    int i, min, max;
+    float avg;
+    min = INITTHRESHOLD;
+    max = 0;
+    avg = 0;
+    //FIX or median?
+    
+    for (i = 0; i < HASHTABLESIZE; i++) {
+        
+        if (ngx_http_anddos_clients[i].set == 1) {
+            int score = ngx_http_anddos_clients[i].httpcode_score + ngx_http_anddos_clients[i].mimetype_score + ngx_http_anddos_clients[i].time_score;
+            if (score < min) min = score;
+            if (score > max) max = score;
+            avg = (avg * (ngx_http_anddos_state.client_count - 1) + score) / ngx_http_anddos_state.client_count;
+        }
+    }
+    //FIX maybe naive?
+    //FIX2 also global state (normal/attack) will be concerned
+    return avg + (avg - min);
+    
+}
+
 static ngx_int_t
 ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
 
@@ -578,6 +600,11 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
 
     } else {
 
+        //dont count to stats already blocked clients
+        //FIX (should not be here in production, but useful for development and testing purposes)
+        if (ngx_http_anddos_clients[key].set > 1) return ngx_http_next_header_filter(r);
+        
+        
         //web-pass sequence
         //ngx_http_anddos_clients[key].pass_seq[ngx_http_anddos_clients[key].request_count % (SEQSIZE - 1)] = (u_char) (ngx_hash_key(r->uri.data, r->uri.len) % 94 + 33);    //circ.register will differ same sequentions (longer than SEQSTEPS)
         if (ngx_http_anddos_clients[key].request_count < (SEQSIZE - 1)) { //register for first n requested url hashes
@@ -599,6 +626,9 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
         ngx_http_anddos_clients[key].set = ngx_http_anddos_decide(r, key);
 
     }
+    
+    //if ((ngx_http_anddos_state.request_count % 100) != 37) 
+    ngx_http_anddos_state.threshold = ngx_http_anddos_count_threshold();  //always in dev/test env
     
     ngx_http_anddos_clients_stats(r);
 
@@ -625,6 +655,7 @@ ngx_http_anddos_filter_init(ngx_conf_t *cf) {
 
     //basic server stats
     ngx_http_anddos_state.level = 0;
+    ngx_http_anddos_state.threshold = INITTHRESHOLD;
     /*
     ngx_http_anddos_state.notmod_count = 0;
     ngx_http_anddos_state.request_count = 0;
