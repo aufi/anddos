@@ -117,8 +117,6 @@ typedef struct { //FIX keep IP somewhere for blocking all clients from the IP
     u_char pass_seq[SEQSIZE];
     u_char ua[HASHKEYLEN];
 
-    //FIX: pointer to IP list
-
 } ngx_http_anddos_client_t;
 
 typedef struct {
@@ -184,7 +182,7 @@ ngx_http_anddos_request_handler(ngx_http_request_t *r) {
     //this handler can block requests only for static content on local server
     //FIX spread blocking to all requests
 
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "anddos processing request");
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS processing request");
 
     ngx_int_t rc;
     ngx_buf_t *b;
@@ -192,18 +190,18 @@ ngx_http_anddos_request_handler(ngx_http_request_t *r) {
 
     //DECIDE whether is request bot or not
     //KISS, one condition, rest logic is moved to the learn_filter
-/*
+
     u_char text_key[HASHKEYLEN];
     memset(text_key, 0, HASHKEYLEN);
     ngx_http_anddos_get_client_text(text_key, r);
     unsigned int key = ngx_hash_key(text_key, ngx_strlen(text_key)) % HASHTABLESIZE;
     
-    if ((int) ngx_http_anddos_clients[key].set < 2) {
+    if (1 || (int) ngx_http_anddos_clients[key].set < 2) {      //only monitor
         
-        return NGX_DECLINED;    // 0,1 OK;  2,3 BLOCK
+        return NGX_DECLINED;    // 0,1 OK;  2,3,.. BLOCK
     
     }
-  */      
+        
     rc = ngx_http_discard_request_body(r);
     if (rc != NGX_OK) {
         return rc;
@@ -295,7 +293,7 @@ ngx_http_anddos_clients_stats(ngx_http_request_t *r) {
     //ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS mimetypes: html: %d; css: %d, js: %d, images: %d, other: %d", ngx_http_anddos_state.html_count, ngx_http_anddos_state.css_count, ngx_http_anddos_state.javascript_count, ngx_http_anddos_state.image_count, ngx_http_anddos_state.other_count);
 
     //DEV logging anddos state to file (after 1/100reqs)
-    //if ((ngx_http_anddos_state.request_count % 100) != 2) return;
+    if ((ngx_http_anddos_state.request_count % 10) != 2) return;
 
     //else stats to file
     FILE *f;
@@ -308,7 +306,7 @@ ngx_http_anddos_clients_stats(ngx_http_request_t *r) {
                 ngx_http_anddos_state.http1_count, ngx_http_anddos_state.http2_count, ngx_http_anddos_state.http3_count, ngx_http_anddos_state.http4_count, ngx_http_anddos_state.http5_count, 
                 ngx_http_anddos_state.avg_time, ngx_http_anddos_state.html_avg_time, ngx_http_anddos_state.html_count, ngx_http_anddos_state.css_count, ngx_http_anddos_state.javascript_count, ngx_http_anddos_state.image_count, ngx_http_anddos_state.other_count);
 
-        printf("ANDDOS:: clients\nset index httpscore mimescore timescore seqscore reqs 304_cnt http1cnt http2cnt http3cnt http4cnt http5cnt avgtime htmlavgtime html css javascript images other pass_seq    ip_ua\n");
+        printf("ANDDOS clients\nset index httpscore mimescore timescore seqscore reqs 304_cnt http1cnt http2cnt http3cnt http4cnt http5cnt avgtime htmlavgtime html css javascript images other pass_seq    ip_ua\n");
         for (i = 0; i < HASHTABLESIZE; i++) {
             if ((int) ngx_http_anddos_clients[i].set > 0) {
                 printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t%s\n", 
@@ -456,12 +454,16 @@ ngx_http_anddos_count_fdiff(float global, float client) {
 
 inline unsigned int
 ngx_http_anddos_count_diff(unsigned int global, unsigned int client) {
-    //what about attack by many very fast and not "heavy" reqs ..no reason to do that, but better block both extrems
-    
+     
     //if (global == 0) return 0;
     //return abs(client - global) / global;       //or non-linear math function - log/exp ?
     
     return (int) 100 * ngx_http_anddos_count_fdiff((float) global, (float) client);
+}
+
+void
+ngx_http_anddos_undo_stats(int key) {
+   //FIX before production deployment
 }
 
 int
@@ -478,7 +480,10 @@ ngx_http_anddos_decide(ngx_http_request_t *r, int key) {
     
     if (score > ngx_http_anddos_state.threshold) dec = 2;
 
-    //when block some client compensate global stats by opposite value of "bad" param?
+    //when block some client compensate global stats by opposite values of his params
+    if (ngx_http_anddos_clients[key].set == 1 && dec == 2) {
+        ngx_http_anddos_undo_stats(key);
+    }
     
     return dec;
 }
@@ -544,27 +549,28 @@ ngx_http_anddos_count_scores(ngx_http_request_t *r, int key) {
 inline int
 ngx_http_anddos_count_threshold() {
     
-    if (ngx_http_anddos_state.request_count < 37) return INITTHRESHOLD;
+    if (ngx_http_anddos_state.request_count < 37 || ngx_http_anddos_state.client_count < 5) return INITTHRESHOLD;
     
-    int i, min, max;
+    int i, min, max, clients;
     float avg;
     min = INITTHRESHOLD;
     max = 0;
     avg = 0;
-    //FIX or median?
+    clients = 0;
     
     for (i = 0; i < HASHTABLESIZE; i++) {
         
-        if ((int) ngx_http_anddos_clients[i].set == 1) {
+        if ((int) ngx_http_anddos_clients[i].set == 1 && (int) ngx_http_anddos_clients[i].request_count > 1) {
+            clients += 1;
             int score = ngx_http_anddos_clients[i].httpcode_score + ngx_http_anddos_clients[i].mimetype_score + ngx_http_anddos_clients[i].time_score;
             if (score < min) min = score;
             if (score > max) max = score;
-            avg = (avg * (ngx_http_anddos_state.client_count - 1) + score) / ngx_http_anddos_state.client_count;
+            avg = (avg * (clients - 1) + score) / clients;
         }
     }
     //FIX maybe naive?
-    //FIX2 also global state (normal/attack) will be concerned
-    return avg + (avg - min);
+    //FIX2 also global state (normal/attack) can be concerned
+    return 150 + avg;     // 2x is too much, 100+ seems to be ok, update: 150 + avg seems to be the best (measures) 
     
 }
 
@@ -613,7 +619,7 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
 
         //dont count to stats already blocked clients
         //FIX (should not be here in production, but useful for development and testing purposes)
-        //if (ngx_http_anddos_clients[key].set > 1) return ngx_http_next_header_filter(r); //DEV FIX
+        if (ngx_http_anddos_clients[key].set > 1) return ngx_http_next_header_filter(r); //DEV FIX
         
         
         //web-pass sequence
@@ -636,7 +642,7 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
         
         //DECIDE to BLOCK
         //and export blocked IP somewhere?
-        //ngx_http_anddos_clients[key].set = ngx_http_anddos_decide(r, key);
+        ngx_http_anddos_clients[key].set = ngx_http_anddos_decide(r, key);
 
     }
     
