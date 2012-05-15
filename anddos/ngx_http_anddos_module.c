@@ -196,7 +196,7 @@ ngx_http_anddos_request_handler(ngx_http_request_t *r) {
     ngx_http_anddos_get_client_text(text_key, r);
     unsigned int key = ngx_hash_key(text_key, ngx_strlen(text_key)) % HASHTABLESIZE;
     
-    if (1 || (int) ngx_http_anddos_clients[key].set < 2) {      //only monitor
+    if (1 || (int) ngx_http_anddos_clients[key].set < 2) {      // 1 || -> only monitor
         
         return NGX_DECLINED;    // 0,1 OK;  2,3,.. BLOCK
     
@@ -259,8 +259,9 @@ void
 ngx_http_anddos_get_client_text(u_char * text_key, ngx_http_request_t *r) {
 
     //FIX IP or UA header can be longer than HASHKEYLEN
+    //only IP is used, np
 
-    if (r->headers_in.user_agent) {
+    if (0) { //(r->headers_in.user_agent) {
         //user_agent HEADER
         u_char header_ua[HASHKEYLEN];
         memset(header_ua, 0, HASHKEYLEN);
@@ -382,9 +383,17 @@ ngx_http_anddos_set_mimetype_stats(ngx_http_request_t *r, int key, int request_t
         //ngx_http_anddos_clients[key].avg_time = ngx_http_anddos_clients[key].avg_time * (ngx_http_anddos_clients[key].request_count - 1) / ngx_http_anddos_clients[key].request_count + request_time / ngx_http_anddos_clients[key].request_count;
         //is better to risk overflow or rounding ? :)
         cnt = ngx_http_anddos_state.http2_count - ngx_http_anddos_state.html_count;
-        ngx_http_anddos_state.avg_time = (ngx_http_anddos_state.avg_time * (cnt - 1) + request_time) / cnt;
+        if (cnt == 0) {
+            ngx_http_anddos_state.avg_time = 0;
+        } else {    
+            ngx_http_anddos_state.avg_time = (ngx_http_anddos_state.avg_time * (cnt - 1) + request_time) / cnt;
+        }
         cnt = ngx_http_anddos_clients[key].http2_count - ngx_http_anddos_clients[key].html_count;
-        ngx_http_anddos_clients[key].avg_time = (ngx_http_anddos_clients[key].avg_time * (cnt - 1) + request_time ) / cnt;
+        if (cnt == 0) {
+            ngx_http_anddos_clients[key].avg_time = 0;
+        } else {
+            ngx_http_anddos_clients[key].avg_time = (ngx_http_anddos_clients[key].avg_time * (cnt - 1) + request_time ) / cnt;
+        }
         
         //what about browser's cache, maybe understand to http headers ?
         
@@ -478,7 +487,7 @@ ngx_http_anddos_decide(ngx_http_request_t *r, int key) {
     
     unsigned int score = ngx_http_anddos_clients[key].httpcode_score + ngx_http_anddos_clients[key].mimetype_score + ngx_http_anddos_clients[key].time_score;
     
-    if (score > ngx_http_anddos_state.threshold) dec = 2;
+    if (score > ngx_http_anddos_state.threshold && ngx_http_anddos_clients[key].request_count > 5) dec = 2;
 
     //when block some client compensate global stats by opposite values of his params
     if (ngx_http_anddos_clients[key].set == 1 && dec == 2) {
@@ -605,7 +614,8 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
         ngx_http_anddos_get_client_text(ngx_http_anddos_clients[key].ua, r);
         ngx_http_anddos_clients[key].pass_seq[0] = (u_char) (ngx_hash_key(r->uri.data, r->uri.len) % 94 + 33); //printable chars from ascii //circ.register will differ same sequentions (longer than SEQSTEPS)
 
-        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: step id: %c for uri: %s", ngx_http_anddos_clients[key].key, 
+        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: step id: %c for uri: %s", 
+                key, 
                 (char) ngx_http_anddos_clients[key].pass_seq[0],
                 (char*) r->uri.data);
 
@@ -631,7 +641,8 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
         ngx_http_anddos_clients[key].request_count += 1;
 
         ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: step id: %c for uri: %s", 
-                ngx_http_anddos_clients[key].key, (char) ngx_http_anddos_clients[key].pass_seq[ngx_http_anddos_clients[key].request_count % SEQSIZE], 
+                key, 
+                (char) ngx_http_anddos_clients[key].pass_seq[ngx_http_anddos_clients[key].request_count % SEQSIZE], 
                 (char*) r->uri.data);
 
         ngx_http_anddos_set_httpcode_stats(r, key);
