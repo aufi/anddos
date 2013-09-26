@@ -294,7 +294,7 @@ ngx_http_anddos_clients_stats(ngx_http_request_t *r) {
     //ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS mimetypes: html: %d; css: %d, js: %d, images: %d, other: %d", ngx_http_anddos_state.html_count, ngx_http_anddos_state.css_count, ngx_http_anddos_state.javascript_count, ngx_http_anddos_state.image_count, ngx_http_anddos_state.other_count);
 
     //DEV logging anddos state to file (after 1/100reqs)
-    if ((ngx_http_anddos_state.request_count % 10) != 2) return;
+    if ((ngx_http_anddos_state.request_count % 100) != 2) return;
 
     //else stats to file
     FILE *f;
