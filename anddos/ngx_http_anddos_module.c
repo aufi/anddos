@@ -22,6 +22,7 @@
 #define STATE_FILE "/tmp/anddos_state"
 #define SEQSIZE 32
 #define INITTHRESHOLD 9999
+#define DEBUG 1
 
 static u_char ngx_anddos_fail_string[] = "<html><head><meta http-equiv='refresh' content='5'><title>Blocked!</title></head><body><p>You have been blocked by ANDDOS!</p></body></html>";
 
@@ -181,8 +182,7 @@ ngx_http_anddos_request_handler(ngx_http_request_t *r) {
     //disabled while using proxy_pass directive, due to nginx architecture        
     //this handler can block requests only for static content on local server
     //FIX spread blocking to all requests
-
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS processing request");
+    if (DEBUG) ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS processing request");
 
     ngx_int_t rc;
     ngx_buf_t *b;
@@ -283,15 +283,18 @@ ngx_http_anddos_get_client_text(u_char * text_key, ngx_http_request_t *r) {
 void
 ngx_http_anddos_clients_stats(ngx_http_request_t *r) {
 
-    //log
     int i;
-    for (i = 0; i < HASHTABLESIZE; i++) {
-        if (ngx_http_anddos_clients[i].set > 0) {
-            ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: request_count: %d; http200_count: %d, key: %d, avg_time: %d, pass_seq: %s", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].http2_count, ngx_http_anddos_clients[i].key, ngx_http_anddos_clients[i].avg_time, (char *) ngx_http_anddos_clients[i].pass_seq);
-        }
+
+    //log
+    if (DEBUG) {
+      for (i = 0; i < HASHTABLESIZE; i++) {
+          if (ngx_http_anddos_clients[i].set > 0) {
+              ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: request_count: %d; http200_count: %d, key: %d, avg_time: %d, pass_seq: %s", i, ngx_http_anddos_clients[i].request_count, ngx_http_anddos_clients[i].http2_count, ngx_http_anddos_clients[i].key, ngx_http_anddos_clients[i].avg_time, (char *) ngx_http_anddos_clients[i].pass_seq);
+          }
+      }
+      ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS state[%d]: request_count: %d; http200_count: %d, client_count: %d, avg_time: %d", ngx_http_anddos_state.level, ngx_http_anddos_state.request_count, ngx_http_anddos_state.http2_count, ngx_http_anddos_state.client_count, ngx_http_anddos_state.avg_time);
+      //ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS mimetypes: html: %d; css: %d, js: %d, images: %d, other: %d", ngx_http_anddos_state.html_count, ngx_http_anddos_state.css_count, ngx_http_anddos_state.javascript_count, ngx_http_anddos_state.image_count, ngx_http_anddos_state.other_count);
     }
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS state[%d]: request_count: %d; http200_count: %d, client_count: %d, avg_time: %d", ngx_http_anddos_state.level, ngx_http_anddos_state.request_count, ngx_http_anddos_state.http2_count, ngx_http_anddos_state.client_count, ngx_http_anddos_state.avg_time);
-    //ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS mimetypes: html: %d; css: %d, js: %d, images: %d, other: %d", ngx_http_anddos_state.html_count, ngx_http_anddos_state.css_count, ngx_http_anddos_state.javascript_count, ngx_http_anddos_state.image_count, ngx_http_anddos_state.other_count);
 
     //DEV logging anddos state to file (after 1/100reqs)
     if ((ngx_http_anddos_state.request_count % 100) != 2) return;
@@ -365,7 +368,7 @@ ngx_http_anddos_set_mimetype_stats(ngx_http_request_t *r, int key, int request_t
     memset(mime_type, 0, 32);
     ngx_snprintf(mime_type, r->headers_out.content_type.len, "%s", r->headers_out.content_type.data);
 
-    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ANDDOS mime: %s", mime_type);
+    if (DEBUG) ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ANDDOS mime: %s", mime_type);
 
     
     
@@ -614,7 +617,7 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
         ngx_http_anddos_get_client_text(ngx_http_anddos_clients[key].ua, r);
         ngx_http_anddos_clients[key].pass_seq[0] = (u_char) (ngx_hash_key(r->uri.data, r->uri.len) % 94 + 33); //printable chars from ascii //circ.register will differ same sequentions (longer than SEQSTEPS)
 
-        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: step id: %c for uri: %s", 
+        if (DEBUG) ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: step id: %c for uri: %s", 
                 key, 
                 (char) ngx_http_anddos_clients[key].pass_seq[0],
                 (char*) r->uri.data);
@@ -640,7 +643,7 @@ ngx_http_anddos_learn_filter(ngx_http_request_t *r) {
 
         ngx_http_anddos_clients[key].request_count += 1;
 
-        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: step id: %c for uri: %s", 
+        if (DEBUG) ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ANDDOS client[%d]: step id: %c for uri: %s", 
                 key, 
                 (char) ngx_http_anddos_clients[key].pass_seq[ngx_http_anddos_clients[key].request_count % SEQSIZE], 
                 (char*) r->uri.data);
