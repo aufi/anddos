@@ -32,7 +32,7 @@ func AnddosHandler(p *httputil.ReverseProxy) func(http.ResponseWriter, *http.Req
 			p.ServeHTTP(w, r)
 
 			// update client stats
-			AnddosClients[remoteIP].AddRequest(200, r.Method, w.Header().Get("Content-type"), float32(time.Since(timeStart)), r.RequestURI)
+			AnddosClients[remoteIP].AddRequest(200, r.Method, w.Header().Get("Content-type"), float32(time.Since(timeStart))/1000, r.RequestURI)
 
 			// TODO: print less often later..
 			log.Printf("%+v\n", AnddosStatus)

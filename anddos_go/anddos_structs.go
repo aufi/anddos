@@ -1,5 +1,7 @@
 package main
 
+import "strings"
+
 // AnddosState keep overall server status and list of clients
 type AnddosState struct {
 	Level     int //(0)Normal, (10)Attack, (100)Overload; not used yet
@@ -82,7 +84,21 @@ func (c *AnddosClient) AddRequest(HTTPCode int, HTTPMethod string, MimeType stri
 	}
 
 	// MimeType TODO
+	if strings.Contains(MimeType, "html") {
+		c.HTMLCount++
+	} else if strings.Contains(MimeType, "image") {
+		c.ImageCount++
+	} else if strings.Contains(MimeType, "javascript") {
+		c.JavasriptCount++
+	} else if strings.Contains(MimeType, "css") {
+		c.CSSCount++
+	} else {
+		c.OtherCount++
+	}
 
 	// Time
 	c.AvgTime = (c.AvgTime*float32(c.RequestsCount-1) + Time) / float32(c.RequestsCount)
+
+	// PassSeq
+	// c.PassSeq[length(c.PassSeq)] =
 }
